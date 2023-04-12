@@ -47,6 +47,16 @@ func (f *File) Out(d, b byte) {
 	switch d & 0x0f {
 	case 0x07:
 		f.append = d == 0x01
+
+	case 0x06: // delete
+		if f.name == "" {
+			panic("file delete before setting name")
+		}
+		if err := os.Remove(f.name); err != nil {
+			log.Printf("delete file: %v", err)
+			return
+		}
+
 	default:
 		panic("not implemented")
 	}
