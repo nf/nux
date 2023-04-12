@@ -35,5 +35,7 @@ func main() {
 	if *debugFlag {
 		logf = log.Printf
 	}
-	(&uxn.Machine{Dev: &Varvara{}}).Run(rom, logf)
+	m := &uxn.Machine{}
+	m.Dev = NewVarvara(m)
+	m.Run(rom, logf)
 }
