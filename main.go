@@ -35,5 +35,34 @@ func main() {
 	if *debugFlag {
 		logf = log.Printf
 	}
-	(&uxn.Machine{}).Run(rom, logf)
+	(&uxn.Machine{Dev: Device{}}).Run(rom, logf)
+}
+
+type Device struct{}
+
+func (Device) In(byte) byte        { panic("device input not implemented") }
+func (Device) InShort(byte) uint16 { panic("device input not implemented") }
+
+func (Device) Out(device, v byte) {
+	switch device {
+	case 0x0f:
+		if v == 0x01 {
+			os.Exit(0)
+		}
+		panic(fmt.Errorf("device 0x0f given unknown value %x", v))
+	case 0x18:
+		os.Stdout.Write([]byte{v})
+	}
+}
+
+func (Device) OutShort(device byte, v uint16) {
+	switch device {
+	case 0x0f:
+		if v == 0x01 {
+			os.Exit(0)
+		}
+		panic(fmt.Errorf("device 0x0f given unknown value %x", v))
+	case 0x18:
+		os.Stdout.Write([]byte{byte(v >> 8), byte(v)})
+	}
 }

@@ -1,10 +1,9 @@
-// Package uxn provides an implementation of a uxn processor, called Machine,
+// Package uxn provides an implementation of a uxn CPU, called Machine,
 // that can be used to execute uxn bytecode.
 package uxn
 
 import (
 	"fmt"
-	"os"
 )
 
 // Machine is an implementation of a uxn processor.
@@ -13,6 +12,15 @@ type Machine struct {
 	PC   uint16
 	Work Stack
 	Ret  Stack
+	Dev  Device
+}
+
+// Device provides access to external systems connected to the uxn CPU.
+type Device interface {
+	In(device byte) (value byte)
+	InShort(device byte) (value uint16)
+	Out(device, value byte)
+	OutShort(device byte, value uint16)
 }
 
 // Run loads the given rom into Mem at 0x100, sets PC to that same address,
@@ -128,23 +136,18 @@ func (m *Machine) exec(logf func(string, ...any)) (cont bool) {
 		}
 		m.Mem[addr] = st.Pop()
 	case DEI:
-		panic("DEI not implemented")
+		dev := st.Pop()
+		if op.Short() {
+			st.PushShort(m.Dev.InShort(dev))
+		} else {
+			st.Push(m.Dev.In(dev))
+		}
 	case DEO:
 		dev := st.Pop()
 		if op.Short() {
-			panic("DEO2 not implemented")
-		}
-		switch dev {
-		case 0x0f:
-			arg := st.Pop()
-			if arg == 0x01 {
-				return false
-			}
-			panic(fmt.Errorf("DEO 0x0f with unknown arg %x", arg))
-		case 0x18:
-			os.Stdout.Write([]byte{st.Pop()})
-		default:
-			panic(fmt.Errorf("DEO for unimplemented device %x", dev))
+			m.Dev.OutShort(dev, st.PopShort())
+		} else {
+			m.Dev.Out(dev, st.Pop())
 		}
 	case SFT:
 		sft := st.Pop()
