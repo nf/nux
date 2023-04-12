@@ -33,11 +33,14 @@ func (f *File) InShort(d byte) uint16 {
 	switch d & 0x0f {
 	case 0x02:
 		return f.success
+
 	case 0x08:
 		f.close()
 		return f.nameAddr
+
 	case 0x0a:
 		return f.length
+
 	default:
 		panic("not implemented")
 	}
@@ -45,9 +48,6 @@ func (f *File) InShort(d byte) uint16 {
 
 func (f *File) Out(d, b byte) {
 	switch d & 0x0f {
-	case 0x07:
-		f.append = d == 0x01
-
 	case 0x06: // delete
 		if f.name == "" {
 			panic("file delete before setting name")
@@ -56,6 +56,9 @@ func (f *File) Out(d, b byte) {
 			log.Printf("delete file: %v", err)
 			return
 		}
+
+	case 0x07:
+		f.append = d == 0x01
 
 	default:
 		panic("not implemented")
@@ -91,6 +94,9 @@ func (f *File) OutShort(d byte, b uint16) {
 			log.Printf("delete file: %v", err)
 			return
 		}
+
+	case 0x07:
+		f.append = d == 0x01
 
 	case 0x08: // name
 		f.close()
