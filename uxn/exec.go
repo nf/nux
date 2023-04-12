@@ -21,6 +21,7 @@ type Device interface {
 	InShort(device byte) (value uint16)
 	Out(device, value byte)
 	OutShort(device byte, value uint16)
+	Next() (pc uint16)
 }
 
 // Run loads the given rom into Mem at 0x100, sets PC to that same address,
@@ -28,7 +29,10 @@ type Device interface {
 func (m *Machine) Run(rom []byte, logf func(string, ...any)) {
 	copy(m.Mem[0x100:], rom)
 	m.PC = 0x100
-	for m.exec(logf) {
+	for {
+		for m.exec(logf) {
+		}
+		m.PC = m.Dev.Next()
 	}
 }
 
