@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Stack implements a uxn stack.
+// Stack implements a Uxn CPU stack.
 type Stack struct {
 	Bytes [255]byte
 	Ptr   byte

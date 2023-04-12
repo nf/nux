@@ -1,12 +1,12 @@
-// Package uxn provides an implementation of a uxn CPU, called Machine,
-// that can be used to execute uxn bytecode.
+// Package uxn provides an implementation of a Uxn CPU, called Machine,
+// that can be used to execute Uxn bytecode.
 package uxn
 
 import (
 	"fmt"
 )
 
-// Machine is an implementation of a uxn processor.
+// Machine is an implementation of a Uxn CPU.
 type Machine struct {
 	Mem  [64 << 10]byte
 	PC   uint16
@@ -15,7 +15,7 @@ type Machine struct {
 	Dev  Device
 }
 
-// Device provides access to external systems connected to the uxn CPU.
+// Device provides access to external systems connected to the Uxn CPU.
 type Device interface {
 	In(device byte) (value byte)
 	InShort(device byte) (value uint16)

@@ -4,7 +4,7 @@ import (
 	"strings"
 )
 
-// Op represents a uxn opcode.
+// Op represents a Uxn opcode.
 type Op byte
 
 // Short reports whether the opcode has the short flag set.

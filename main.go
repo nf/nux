@@ -1,4 +1,4 @@
-// Command nux executes uxn bytecode.
+// Command nux executes Uxn bytecode.
 package main
 
 import (
