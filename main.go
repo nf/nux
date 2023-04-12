@@ -51,6 +51,8 @@ func (Device) Out(d, v byte) {
 		}
 	case 0x18:
 		os.Stdout.Write([]byte{v})
+	case 0x19:
+		os.Stderr.Write([]byte{v})
 	default:
 		panic(fmt.Errorf("device %x not implemented", d))
 	}
@@ -64,6 +66,8 @@ func (Device) OutShort(d byte, v uint16) {
 		}
 	case 0x18:
 		os.Stdout.Write([]byte{byte(v >> 8), byte(v)})
+	case 0x19:
+		os.Stderr.Write([]byte{byte(v >> 8), byte(v)})
 	default:
 		panic(fmt.Errorf("device %x not implemented", d))
 	}
