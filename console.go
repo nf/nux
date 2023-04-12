@@ -6,6 +6,7 @@ import (
 )
 
 type Console struct {
+	mem    deviceMem
 	vector chan<- uint16
 	input  <-chan byte
 	next   <-chan uint16
@@ -13,34 +14,21 @@ type Console struct {
 
 func (c *Console) In(d byte) byte {
 	switch d {
-	case 0x12:
+	case 0x2:
 		select {
 		case b := <-c.input:
+			c.mem[d] = b
 			return b
 		default:
-			return 0
 		}
-	default:
-		panic("not implemented")
 	}
+	return c.mem[d]
 }
-
-func (v *Console) InShort(byte) uint16 { panic("not implemented") }
 
 func (c *Console) Out(d, b byte) {
+	c.mem[d] = b
 	switch d {
-	case 0x18:
-		os.Stdout.Write([]byte{b})
-	case 0x19:
-		os.Stderr.Write([]byte{b})
-	default:
-		panic("not implemented")
-	}
-}
-
-func (c *Console) OutShort(d byte, b uint16) {
-	switch d {
-	case 0x10:
+	case 0x01:
 		if c.vector == nil {
 			var (
 				vector = make(chan uint16)
@@ -50,13 +38,11 @@ func (c *Console) OutShort(d byte, b uint16) {
 			go readInput(vector, input, next)
 			c.vector, c.input, c.next = vector, input, next
 		}
-		c.vector <- b
-	case 0x18:
-		os.Stdout.Write([]byte{byte(b >> 8), byte(b)})
-	case 0x19:
-		os.Stderr.Write([]byte{byte(b >> 8), byte(b)})
-	default:
-		panic("not implemented")
+		c.vector <- c.mem.short(0x0)
+	case 0x08:
+		os.Stdout.Write([]byte{b})
+	case 0x09:
+		os.Stderr.Write([]byte{b})
 	}
 }
 
