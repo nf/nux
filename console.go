@@ -63,21 +63,38 @@ func (c *Console) OutShort(d byte, b uint16) {
 func (c *Console) Next() <-chan uint16 { return c.next }
 
 func readInput(vector <-chan uint16, input chan<- byte, next chan<- uint16) {
+	read := make(chan byte)
+	go func() {
+		for {
+			var b [1]byte
+			if _, err := os.Stdin.Read(b[:]); err != nil {
+				log.Printf("reading stdin: %v", err)
+				return
+			}
+			read <- b[0]
+		}
+	}()
 	var (
-		b [1]byte
-		v = <-vector
+		vec = <-vector
+		val byte
 	)
 	for {
-		if _, err := os.Stdin.Read(b[:]); err != nil {
-			log.Printf("reading stdin: %v", err)
-			return
-		}
-		input <- b[0]
-	retry:
 		select {
-		case v = <-vector:
-			goto retry
-		case next <- v:
+		case vec = <-vector:
+			continue
+		case val = <-read:
+		}
+	sendVal:
+		select {
+		case vec = <-vector:
+			goto sendVal
+		case input <- val:
+		}
+	sendVec:
+		select {
+		case vec = <-vector:
+			goto sendVec
+		case next <- vec:
 		}
 	}
 }
