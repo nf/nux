@@ -77,12 +77,11 @@ func (f *File) OutShort(d byte, b uint16) {
 			log.Printf("stat file: %v", err)
 			return
 		}
-		var buf bytes.Buffer
-		writeFileInfo(&buf, fi)
-		if buf.Len() > int(f.length) {
+		info := fileInfoBytes(fi)
+		if len(info) > int(f.length) {
 			return
 		}
-		f.success = uint16(copy(f.mem[b:b+f.length], buf.Bytes()))
+		f.success = uint16(copy(f.mem[b:b+f.length], info))
 
 	case 0x06: // delete
 		if f.name == "" {
@@ -210,24 +209,23 @@ func fileReader(name string) (io.ReadCloser, error) {
 	r, w := io.Pipe()
 	go func() {
 		defer w.Close()
-		var buf bytes.Buffer
 		for _, fi := range fis {
-			buf.Reset()
-			writeFileInfo(&buf, fi)
-			w.Write(buf.Bytes())
+			w.Write(fileInfoBytes(fi))
 		}
 	}()
 	return io.NopCloser(r), nil
 }
 
-func writeFileInfo(buf *bytes.Buffer, fi fs.FileInfo) {
+func fileInfoBytes(fi fs.FileInfo) []byte {
+	var buf bytes.Buffer
 	if fi.IsDir() {
 		buf.WriteString("---- ")
 	} else if size := fi.Size(); size > 0xffff {
 		buf.WriteString("???? ")
 	} else {
-		fmt.Fprintf(buf, "%.4x ", size)
+		fmt.Fprintf(&buf, "%.4x ", size)
 	}
 	buf.WriteString(filepath.ToSlash(fi.Name()))
 	buf.WriteByte('\n')
+	return buf.Bytes()
 }
