@@ -68,13 +68,18 @@ func (v *gui) Draw(screen *ebiten.Image) {
 			x, y  = int(op.X), int(op.Y)
 			flipX = op.Byte&0x10 != 0
 			flipY = op.Byte&0x20 != 0
+			fg    = op.Byte&0x40 != 0
 		)
-		if op.Byte&0x40 == 0 {
-			m = v.bg
-		} else {
+		if fg {
 			m = v.fg
+		} else {
+			m = v.bg
 		}
 		if op.Sprite {
+			var (
+				mono  = op.Byte&0x80 == 0
+				blend = op.Byte & 0x0f
+			)
 			if !flipX {
 				x += 7
 			}
@@ -86,11 +91,15 @@ func (v *gui) Draw(screen *ebiten.Image) {
 				pxB := op.SpriteData[j+8]
 				for i := 0; i < 8; i++ {
 					c := pxA & 0x1
-					if op.Byte&0x80 != 0 {
+					if !mono {
 						c += pxB & 0x1 << 1
 					}
-					c = drawBlendingModes[c][op.Byte&0x0f]
-					m.Set(x, y, v.theme[c])
+					c = drawBlendingModes[c][blend]
+					if fg && c == 0 {
+						m.Set(x, y, color.Transparent)
+					} else {
+						m.Set(x, y, v.theme[c])
+					}
 					pxA >>= 1
 					pxB >>= 1
 					if flipX {
