@@ -1,12 +1,29 @@
 package main
 
-import "github.com/nf/nux/uxn"
+import (
+	"os"
 
-func NewVarvara(m *uxn.Machine) *Varvara {
+	"github.com/nf/nux/uxn"
+)
+
+func Run(rom []byte, logf func(string, ...any)) {
+	m := uxn.NewMachine(rom)
 	v := &Varvara{}
+	v.sys.Done = make(chan bool)
 	v.fileA.main = m.Mem[:]
 	v.fileB.main = m.Mem[:]
-	return v
+	m.Dev = v
+	go func() {
+		m.ExecVector(0x100, logf)
+		for {
+			select {
+			case <-v.con.Ready:
+				m.ExecVector(v.con.Vector(), logf)
+			}
+		}
+	}()
+	<-v.sys.Done
+	os.Exit(v.sys.ExitCode())
 }
 
 type Varvara struct {
@@ -57,10 +74,6 @@ func (v *Varvara) Out(d, b byte) {
 func (v *Varvara) OutShort(d byte, b uint16) {
 	v.Out(d, byte(b>>8))
 	v.Out(d+1, byte(b))
-}
-
-func (v *Varvara) Next() uint16 {
-	return <-v.con.Next()
 }
 
 type deviceMem [16]byte

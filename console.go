@@ -6,11 +6,13 @@ import (
 )
 
 type Console struct {
-	mem    deviceMem
-	vector chan<- uint16
-	input  <-chan byte
-	next   <-chan uint16
+	Ready <-chan bool
+
+	mem   deviceMem
+	input <-chan byte
 }
+
+func (c *Console) Vector() uint16 { return c.mem.short(0x0) }
 
 func (c *Console) In(d byte) byte {
 	switch d {
@@ -29,16 +31,14 @@ func (c *Console) Out(d, b byte) {
 	c.mem[d] = b
 	switch d {
 	case 0x01:
-		if c.vector == nil {
+		if c.input == nil {
 			var (
-				vector = make(chan uint16)
-				input  = make(chan byte, 1)
-				next   = make(chan uint16)
+				input = make(chan byte, 1)
+				ready = make(chan bool)
 			)
-			go readInput(vector, input, next)
-			c.vector, c.input, c.next = vector, input, next
+			go readInput(input, ready)
+			c.input, c.Ready = input, ready
 		}
-		c.vector <- c.mem.short(0x0)
 	case 0x08:
 		os.Stdout.Write([]byte{b})
 	case 0x09:
@@ -46,41 +46,14 @@ func (c *Console) Out(d, b byte) {
 	}
 }
 
-func (c *Console) Next() <-chan uint16 { return c.next }
-
-func readInput(vector <-chan uint16, input chan<- byte, next chan<- uint16) {
-	read := make(chan byte)
-	go func() {
-		for {
-			var b [1]byte
-			if _, err := os.Stdin.Read(b[:]); err != nil {
-				log.Printf("reading stdin: %v", err)
-				return
-			}
-			read <- b[0]
-		}
-	}()
-	var (
-		vec = <-vector
-		val byte
-	)
+func readInput(input chan<- byte, ready chan<- bool) {
 	for {
-		select {
-		case vec = <-vector:
-			continue
-		case val = <-read:
+		var b [1]byte
+		if _, err := os.Stdin.Read(b[:]); err != nil {
+			log.Printf("reading stdin: %v", err)
+			return
 		}
-	sendVal:
-		select {
-		case vec = <-vector:
-			goto sendVal
-		case input <- val:
-		}
-	sendVec:
-		select {
-		case vec = <-vector:
-			goto sendVec
-		case next <- vec:
-		}
+		input <- b[0]
+		ready <- true
 	}
 }

@@ -1,23 +1,24 @@
 package main
 
-import "os"
+type System struct {
+	Done chan bool
 
-type System struct{}
-
-func (System) In(d byte) byte {
-	return 0
+	mem deviceMem
 }
 
-func (System) InShort(d byte) uint16 {
-	return 0
+func (s *System) ExitCode() int { return int(s.mem[0xf] & 0x7f) }
+
+func (s *System) In(d byte) byte {
+	return s.mem[d]
 }
 
-func (System) Out(d, b byte) {
-	d &= 0xf
+func (s *System) Out(d, b byte) {
+	s.mem[d] = b
 	switch d {
 	case 0xf:
 		if b != 0 {
-			os.Exit(int(0x7f & b))
+			close(s.Done)
+			select {} // Prevent further execution.
 		}
 	}
 }

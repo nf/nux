@@ -21,39 +21,39 @@ type Device interface {
 	InShort(device byte) (value uint16)
 	Out(device, value byte)
 	OutShort(device byte, value uint16)
-	Next() (pc uint16)
 }
 
-// Run loads the given rom into Mem at 0x100, sets PC to that same address,
-// and executes instructions until it encouters BRK or #010f DEO.
-func (m *Machine) Run(rom []byte, logf func(string, ...any)) {
+func NewMachine(rom []byte) *Machine {
+	m := &Machine{}
 	copy(m.Mem[0x100:], rom)
-	m.PC = 0x100
-	for {
-		for m.exec(logf) {
-		}
-		m.PC = m.Dev.Next()
+	return m
+}
+
+func (m *Machine) ExecVector(pc uint16, logf func(string, ...any)) {
+	m.PC = pc
+	for m.Mem[m.PC] != 0 {
+		m.exec(logf)
 	}
 }
 
-func (m *Machine) exec(logf func(string, ...any)) (cont bool) {
+func (m *Machine) exec(logf func(string, ...any)) {
 	op := Op(m.Mem[m.PC])
 	logf("%x\t%v\t%v\t%v\n", m.PC, op, m.Work, m.Ret)
 	m.PC++
 
 	switch op {
 	case BRK:
-		return false
+		return
 	case JCI, JMI, JSI:
 		m.PC += 2
 		if op == JCI && m.Work.wrap().Pop() == 0 {
-			return true
+			return
 		}
 		if op == JSI {
 			m.Ret.wrap().PushShort(m.PC)
 		}
 		m.PC += uint16(m.Mem[m.PC-2])<<8 + uint16(m.Mem[m.PC-1])
-		return true
+		return
 	}
 
 	var st *stackWrapper
@@ -168,8 +168,6 @@ func (m *Machine) exec(logf func(string, ...any)) (cont bool) {
 			execSimple(op, pushPopper[byte](st))
 		}
 	}
-
-	return true
 }
 
 func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
