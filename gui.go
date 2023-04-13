@@ -80,53 +80,33 @@ func (v *gui) Draw(screen *ebiten.Image) {
 			if flipY {
 				y += 7
 			}
-			if op.Byte&0x80 == 0 { // 1-bit (8 byte)
-				for j := 0; j < 8; j++ {
-					px := op.SpriteData[j]
-					for i := 0; i < 8; i++ {
-						m.Set(x, y, v.theme[px&0x1])
-						px >>= 1
-						if flipX {
-							x++
-						} else {
-							x--
-						}
+			for j := 0; j < 8; j++ {
+				pxA := op.SpriteData[j]
+				pxB := op.SpriteData[j+8]
+				for i := 0; i < 8; i++ {
+					c := pxA & 0x1
+					if op.Byte&0x80 != 0 {
+						c += pxB & 0x1 << 1
 					}
+					c = drawBlendingModes[c][op.Byte&0x0f]
+					m.Set(x, y, v.theme[c])
+					pxA >>= 1
+					pxB >>= 1
 					if flipX {
-						x -= 8
+						x++
 					} else {
-						x += 8
-					}
-					if flipY {
-						y--
-					} else {
-						y++
+						x--
 					}
 				}
-			} else { // 2-bit (16 bytes)
-				for j := 0; j < 8; j++ {
-					pxA := op.SpriteData[j]
-					pxB := op.SpriteData[j+8]
-					for i := 0; i < 8; i++ {
-						m.Set(x, y, v.theme[pxA&0x1+pxB&0x1<<1])
-						pxA >>= 1
-						pxB >>= 1
-						if flipX {
-							x++
-						} else {
-							x--
-						}
-					}
-					if flipX {
-						x -= 8
-					} else {
-						x += 8
-					}
-					if flipY {
-						y--
-					} else {
-						y++
-					}
+				if flipX {
+					x -= 8
+				} else {
+					x += 8
+				}
+				if flipY {
+					y--
+				} else {
+					y++
 				}
 			}
 		} else { // pixel
