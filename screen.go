@@ -38,19 +38,20 @@ func (s *Screen) Out(d, b byte) {
 		}
 	case 0xf: // sprite
 		var (
-			auto = s.Auto()
-			x, y = s.X(), s.Y()
-			addr = s.Addr()
+			auto   = s.Auto()
+			x, y   = s.X(), s.Y()
+			addr   = s.Addr()
+			sx, sy = x, y
 		)
 		for n := int8(auto >> 4); n >= 0; n-- {
-			op := DrawOp{X: x, Y: y, Byte: b, Sprite: true}
+			op := DrawOp{X: sx, Y: sy, Byte: b, Sprite: true}
 			copy(op.SpriteData[:], s.main[addr:])
 			s.pending = append(s.pending, op)
 			if auto&0x1 != 0 { // x
-				x += 8
+				sy += 8
 			}
 			if auto&0x2 != 0 { // y
-				y += 8
+				sx += 8
 			}
 			if auto&0x4 != 0 { // addr
 				if b&0x80 == 0 {
@@ -60,8 +61,12 @@ func (s *Screen) Out(d, b byte) {
 				}
 			}
 		}
-		s.setX(x)
-		s.setY(y)
+		if auto&0x1 != 0 { // x
+			s.setX(x + 8)
+		}
+		if auto&0x2 != 0 { // y
+			s.setY(y + 8)
+		}
 		s.setAddr(addr)
 	}
 }
