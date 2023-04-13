@@ -38,6 +38,7 @@ func (v *gui) update() {
 	if v.fg == nil || v.fg.Bounds().Dx() != v.width || v.fg.Bounds().Dy() != v.height {
 		v.fg = ebiten.NewImage(v.width, v.height)
 		v.bg = ebiten.NewImage(v.width, v.height)
+		v.bg.Fill(v.theme[0])
 	}
 	v.pending = append(v.pending, v.scr.pending...)
 	v.scr.pending = v.scr.pending[:0]
