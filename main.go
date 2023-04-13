@@ -14,7 +14,10 @@ func main() {
 	log.SetPrefix("nux: ")
 	log.SetFlags(0)
 
-	debugFlag := flag.Bool("debug", false, "print debugging information")
+	var (
+		debugFlag = flag.Bool("debug", false, "print debugging information")
+		guiFlag   = flag.Bool("gui", false, "enable GUI features")
+	)
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s <program.rom>\n", os.Args[0])
@@ -35,5 +38,5 @@ func main() {
 	if *debugFlag {
 		logf = log.Printf
 	}
-	Run(rom, logf)
+	Run(rom, *guiFlag, logf)
 }
