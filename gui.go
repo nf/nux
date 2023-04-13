@@ -111,8 +111,24 @@ func (v *gui) Draw(screen *ebiten.Image) {
 				}
 			}
 		} else { // pixel
-			// TODO: fill
-			m.Set(x, y, v.theme[op.Byte&0x3])
+			c := v.theme[op.Byte&0x3]
+			if op.Byte&0xf0 == 0 {
+				m.Set(x, y, c)
+			} else { // fill
+				for x >= 0 && y >= 0 && x < v.width && y < v.height {
+					m.Set(x, y, c)
+					if flipX {
+						x--
+					} else {
+						x++
+					}
+					if flipY {
+						y--
+					} else {
+						y++
+					}
+				}
+			}
 		}
 	}
 	v.pending = v.pending[:0]
