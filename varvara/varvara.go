@@ -21,25 +21,34 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) {
 	v.fileA.main = m.Mem[:]
 	v.fileB.main = m.Mem[:]
 	m.Dev = v
-	m.ExecVector(0x100, logf)
+
 	var g *gui
 	if enableGUI {
 		g = &gui{Varvara: v}
 		g.update()
 	}
+
+	vector := uint16(0x100)
 	go func() {
 		for {
+			if err := m.ExecVector(vector, logf); err != nil {
+				if _, ok := err.(uxn.HaltError); ok {
+					if vector = v.sys.Halt(); vector > 0 {
+						continue
+					}
+				}
+				panic(err)
+			}
 			select {
 			case <-v.con.Ready:
-				m.ExecVector(v.con.Vector(), logf)
+				vector = v.con.Vector()
 			case v.guiUpdate <- true:
 				<-v.guiUpdateDone
-				if addr := v.scr.Vector(); addr != 0 { // FIXME
-					m.ExecVector(addr, logf)
-				}
+				vector = v.scr.Vector()
 			}
 		}
 	}()
+
 	if enableGUI {
 		if err := ebiten.RunGame(g); err != nil {
 			log.Fatalf("ebiten: %v", err)
@@ -47,6 +56,7 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) {
 	} else {
 		<-v.sys.Done
 	}
+
 	os.Exit(v.sys.ExitCode())
 }
 

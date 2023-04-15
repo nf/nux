@@ -6,6 +6,7 @@ type System struct {
 	mem deviceMem
 }
 
+func (s *System) Halt() uint16  { return s.mem.short(0x0) }
 func (s *System) Red() uint16   { return s.mem.short(0x8) }
 func (s *System) Green() uint16 { return s.mem.short(0xa) }
 func (s *System) Blue() uint16  { return s.mem.short(0xc) }
