@@ -70,49 +70,49 @@ type Varvara struct {
 	guiUpdateDone chan bool
 }
 
-func (v *Varvara) In(d byte) byte {
-	dev := d & 0xf0
-	d &= 0xf
+func (v *Varvara) In(p byte) byte {
+	dev := p & 0xf0
+	p &= 0xf
 	switch dev {
 	case 0x00:
-		return v.sys.In(d)
+		return v.sys.In(p)
 	case 0x10:
-		return v.con.In(d)
+		return v.con.In(p)
 	case 0x20:
-		return v.scr.In(d)
+		return v.scr.In(p)
 	case 0xa0:
-		return v.fileA.In(d)
+		return v.fileA.In(p)
 	case 0xb0:
-		return v.fileB.In(d)
+		return v.fileB.In(p)
 	default:
 		return 0 // Unimplemented device.
 	}
 }
 
-func (v *Varvara) InShort(d byte) uint16 {
-	return short(v.In(d), v.In(d+1))
+func (v *Varvara) InShort(p byte) uint16 {
+	return short(v.In(p), v.In(p+1))
 }
 
-func (v *Varvara) Out(d, b byte) {
-	dev := d & 0xf0
-	d &= 0xf
+func (v *Varvara) Out(p, b byte) {
+	dev := p & 0xf0
+	p &= 0xf
 	switch dev {
 	case 0x00:
-		v.sys.Out(d, b)
+		v.sys.Out(p, b)
 	case 0x10:
-		v.con.Out(d, b)
+		v.con.Out(p, b)
 	case 0x20:
-		v.scr.Out(d, b)
+		v.scr.Out(p, b)
 	case 0xa0:
-		v.fileA.Out(d, b)
+		v.fileA.Out(p, b)
 	case 0xb0:
-		v.fileB.Out(d, b)
+		v.fileB.Out(p, b)
 	}
 }
 
-func (v *Varvara) OutShort(d byte, b uint16) {
-	v.Out(d, byte(b>>8))
-	v.Out(d+1, byte(b))
+func (v *Varvara) OutShort(p byte, b uint16) {
+	v.Out(p, byte(b>>8))
+	v.Out(p+1, byte(b))
 }
 
 type deviceMem [16]byte

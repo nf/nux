@@ -17,10 +17,10 @@ type Machine struct {
 
 // Device provides access to external systems connected to the Uxn CPU.
 type Device interface {
-	In(device byte) (value byte)
-	InShort(device byte) (value uint16)
-	Out(device, value byte)
-	OutShort(device byte, value uint16)
+	In(port byte) (value byte)
+	InShort(port byte) (value uint16)
+	Out(port, value byte)
+	OutShort(port byte, value uint16)
 }
 
 func NewMachine(rom []byte) *Machine {
@@ -166,18 +166,18 @@ func (m *Machine) exec(logf func(string, ...any)) (err error) {
 		}
 		m.Mem[addr] = st.Pop()
 	case DEI:
-		dev := st.Pop()
+		port := st.Pop()
 		if op.Short() {
-			st.PushShort(m.Dev.InShort(dev))
+			st.PushShort(m.Dev.InShort(port))
 		} else {
-			st.Push(m.Dev.In(dev))
+			st.Push(m.Dev.In(port))
 		}
 	case DEO:
-		dev := st.Pop()
+		port := st.Pop()
 		if op.Short() {
-			m.Dev.OutShort(dev, st.PopShort())
+			m.Dev.OutShort(port, st.PopShort())
 		} else {
-			m.Dev.Out(dev, st.Pop())
+			m.Dev.Out(port, st.Pop())
 		}
 	case SFT:
 		sft := st.Pop()

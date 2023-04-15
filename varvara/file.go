@@ -26,17 +26,17 @@ type File struct {
 func (f *File) setSuccess(v int) { f.mem.setShort(0x2, uint16(v)) }
 func (f *File) length() uint16   { return f.mem.short(0xa) }
 
-func (f *File) In(d byte) byte {
-	switch d {
+func (f *File) In(p byte) byte {
+	switch p {
 	case 0x8, 0x9: // name
 		f.close()
 	}
-	return f.mem[d]
+	return f.mem[p]
 }
 
-func (f *File) Out(d, b byte) {
-	f.mem[d] = b
-	switch d {
+func (f *File) Out(p, b byte) {
+	f.mem[p] = b
+	switch p {
 
 	case 0x5: // stat
 		f.setSuccess(0)
@@ -68,7 +68,7 @@ func (f *File) Out(d, b byte) {
 		}
 
 	case 0x7:
-		f.append = d == 0x01
+		f.append = p == 0x01
 
 	case 0x9: // name
 		f.close()

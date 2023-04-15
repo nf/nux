@@ -14,22 +14,22 @@ type Console struct {
 
 func (c *Console) Vector() uint16 { return c.mem.short(0x0) }
 
-func (c *Console) In(d byte) byte {
-	switch d {
+func (c *Console) In(p byte) byte {
+	switch p {
 	case 0x2:
 		select {
 		case b := <-c.input:
-			c.mem[d] = b
+			c.mem[p] = b
 			return b
 		default:
 		}
 	}
-	return c.mem[d]
+	return c.mem[p]
 }
 
-func (c *Console) Out(d, b byte) {
-	c.mem[d] = b
-	switch d {
+func (c *Console) Out(p, b byte) {
+	c.mem[p] = b
+	switch p {
 	case 0x01:
 		if c.input == nil {
 			var (

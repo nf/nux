@@ -19,11 +19,13 @@ func (s *Screen) setX(x int16)     { s.mem.setShort(0x8, uint16(x)) }
 func (s *Screen) setY(y int16)     { s.mem.setShort(0xa, uint16(y)) }
 func (s *Screen) setAddr(a uint16) { s.mem.setShort(0xc, a) }
 
-func (s *Screen) In(d byte) byte { return s.mem[d] }
+func (s *Screen) In(p byte) byte {
+	return s.mem[p]
+}
 
-func (s *Screen) Out(d, b byte) {
-	s.mem[d] = b
-	switch d {
+func (s *Screen) Out(p, b byte) {
+	s.mem[p] = b
+	switch p {
 	case 0xe: // pixel
 		var (
 			auto = s.Auto()

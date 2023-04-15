@@ -12,13 +12,13 @@ func (s *System) Green() uint16 { return s.mem.short(0xa) }
 func (s *System) Blue() uint16  { return s.mem.short(0xc) }
 func (s *System) ExitCode() int { return int(s.mem[0xf] & 0x7f) }
 
-func (s *System) In(d byte) byte {
-	return s.mem[d]
+func (s *System) In(p byte) byte {
+	return s.mem[p]
 }
 
-func (s *System) Out(d, b byte) {
-	s.mem[d] = b
-	switch d {
+func (s *System) Out(p, b byte) {
+	s.mem[p] = b
+	switch p {
 	case 0xf:
 		if b != 0 {
 			close(s.Done)
