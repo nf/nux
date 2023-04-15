@@ -61,85 +61,77 @@ func (v *gui) Update() error {
 
 func (v *gui) Draw(screen *ebiten.Image) {
 	for i := range v.pending {
-		op := &v.pending[i]
-
 		var (
-			m     *ebiten.Image
-			x, y  = int16(op.X), int16(op.Y)
-			flipX = op.Byte&0x10 != 0
-			flipY = op.Byte&0x20 != 0
-			fg    = op.Byte&0x40 != 0
+			op   = &v.pending[i]
+			m    *ebiten.Image
+			x, y = op.X, op.Y
 		)
-		if fg {
+		if op.Foreground() {
 			m = v.fg
 		} else {
 			m = v.bg
 		}
 		if op.Sprite {
-			var (
-				mono   = op.Byte&0x80 == 0
-				blend  = op.Byte & 0x0f
-				opaque = blend == 0 || blend%5 != 0
-			)
-			if !flipX {
+			drawZero := op.Blend() == 0 || op.Blend()%5 != 0
+			if !op.FlipX() {
 				x += 7
 			}
-			if flipY {
+			if op.FlipY() {
 				y += 7
 			}
 			for j := 0; j < 8; j++ {
 				pxA := op.SpriteData[j]
 				pxB := op.SpriteData[j+8]
 				for i := 0; i < 8; i++ {
-					c := pxA & 0x1
-					if !mono {
-						c |= pxB & 0x1 << 1
+					px := pxA & 1
+					if op.TwoBit() {
+						px |= pxB & 1 << 1
 					}
-					c = drawBlendingModes[c][blend]
-					if opaque || c > 0 {
-						if fg && c == 0 {
-							m.Set(int(x), int(y), color.Transparent)
-						} else {
-							m.Set(int(x), int(y), v.theme[c])
+					px = drawBlendingModes[px][op.Blend()]
+					if drawZero || px > 0 {
+						var c color.Color = color.Transparent
+						if !op.Foreground() || px > 0 {
+							c = v.theme[px]
 						}
+						m.Set(int(x), int(y), c)
 					}
 					pxA >>= 1
 					pxB >>= 1
-					if flipX {
+					if op.FlipX() {
 						x++
 					} else {
 						x--
 					}
 				}
-				if flipX {
+				if op.FlipX() {
 					x -= 8
 				} else {
 					x += 8
 				}
-				if flipY {
+				if op.FlipY() {
 					y--
 				} else {
 					y++
 				}
 			}
 		} else { // pixel
-			c := v.theme[op.Byte&0x3]
-			if op.Byte&0xf0 == 0 {
-				m.Set(int(x), int(y), c)
-			} else { // fill
+			c := v.theme[op.Color()]
+			if op.Fill() {
 				for x >= 0 && y >= 0 && int(x) < v.width && int(y) < v.height {
 					m.Set(int(x), int(y), c)
-					if flipX {
+					if op.FlipX() {
 						x--
 					} else {
 						x++
 					}
-					if flipY {
+					if op.FlipY() {
 						y--
 					} else {
 						y++
 					}
 				}
+			} else {
+				m.Set(int(x), int(y), c)
 			}
 		}
 	}
