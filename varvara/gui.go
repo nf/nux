@@ -62,9 +62,8 @@ func (v *gui) Update() error {
 func (v *gui) Draw(screen *ebiten.Image) {
 	for i := range v.pending {
 		var (
-			op   = &v.pending[i]
-			m    *ebiten.Image
-			x, y = op.X, op.Y
+			op = &v.pending[i]
+			m  *ebiten.Image
 		)
 		if op.Foreground() {
 			m = v.fg
@@ -72,7 +71,10 @@ func (v *gui) Draw(screen *ebiten.Image) {
 			m = v.bg
 		}
 		if op.Sprite {
-			drawZero := op.Blend() == 0 || op.Blend()%5 != 0
+			var (
+				x, y     = op.X, op.Y
+				drawZero = op.Blend() == 0 || op.Blend()%5 != 0
+			)
 			if !op.FlipX() {
 				x += 7
 			}
@@ -117,21 +119,20 @@ func (v *gui) Draw(screen *ebiten.Image) {
 		} else { // pixel
 			c := v.theme[op.Color()]
 			if op.Fill() {
-				for x >= 0 && y >= 0 && int(x) < v.width && int(y) < v.height {
-					m.Set(int(x), int(y), c)
-					if op.FlipX() {
-						x--
-					} else {
-						x++
-					}
-					if op.FlipY() {
-						y--
-					} else {
-						y++
+				var dx, dy int16 = 1, 1
+				if op.FlipX() {
+					dx = -1
+				}
+				if op.FlipY() {
+					dy = -1
+				}
+				for x := op.X; x >= 0 && int(x) < v.width; x += dx {
+					for y := op.Y; y >= 0 && int(y) < v.height; y += dy {
+						m.Set(int(x), int(y), c)
 					}
 				}
 			} else {
-				m.Set(int(x), int(y), c)
+				m.Set(int(op.X), int(op.Y), c)
 			}
 		}
 	}
