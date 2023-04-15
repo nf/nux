@@ -92,7 +92,7 @@ func (s Stack) String() string {
 	b.WriteByte('(')
 	for _, v := range s.Bytes[:s.Ptr] {
 		b.WriteByte(' ')
-		fmt.Fprintf(&b, "%x", v)
+		fmt.Fprintf(&b, "%.2x", v)
 	}
 	b.WriteByte(' ')
 	b.WriteByte(')')
