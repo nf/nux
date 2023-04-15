@@ -3,14 +3,13 @@ package varvara
 
 import (
 	"log"
-	"os"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"github.com/nf/nux/uxn"
 )
 
-func Run(rom []byte, enableGUI bool, logf func(string, ...any)) {
+func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 	m := uxn.NewMachine(rom)
 	v := &Varvara{
 		guiUpdate:     make(chan bool),
@@ -37,7 +36,7 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) {
 						continue
 					}
 				}
-				panic(err)
+				log.Fatalf("uxn.Machine.ExecVector: %v", err)
 			}
 			select {
 			case <-v.con.Ready:
@@ -51,13 +50,13 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) {
 
 	if enableGUI {
 		if err := ebiten.RunGame(g); err != nil {
-			log.Fatalf("ebiten: %v", err)
+			log.Fatalf("ebiten.RunGame: %v", err)
 		}
 	} else {
 		<-v.sys.Done
 	}
 
-	os.Exit(v.sys.ExitCode())
+	return v.sys.ExitCode()
 }
 
 type Varvara struct {
@@ -86,7 +85,7 @@ func (v *Varvara) In(d byte) byte {
 	case 0xb0:
 		return v.fileB.In(d)
 	default:
-		panic("device not implemented")
+		return 0 // Unimplemented device.
 	}
 }
 
@@ -108,8 +107,6 @@ func (v *Varvara) Out(d, b byte) {
 		v.fileA.Out(d, b)
 	case 0xb0:
 		v.fileB.Out(d, b)
-	default:
-		panic("not implemented")
 	}
 }
 

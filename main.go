@@ -32,12 +32,12 @@ func main() {
 
 	rom, err := os.ReadFile(flag.Arg(0))
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	logf := uxn.Nopf
 	if *debugFlag {
 		logf = log.Printf
 	}
-	varvara.Run(rom, *guiFlag, logf)
+	os.Exit(varvara.Run(rom, *guiFlag, logf))
 }
