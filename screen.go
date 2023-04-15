@@ -38,33 +38,38 @@ func (s *Screen) Out(d, b byte) {
 		}
 	case 0xf: // sprite
 		var (
-			auto   = s.Auto()
-			x, y   = s.X(), s.Y()
-			addr   = s.Addr()
-			sx, sy = x, y
+			auto     = s.Auto()
+			autoX    = auto&0x1 > 0
+			autoY    = auto&0x2 > 0
+			autoAddr = auto&0x4 > 0
+			autoN    = auto >> 4
+			x, y     = s.X(), s.Y()
+			addr     = s.Addr()
+			sx, sy   = x, y
+			mono     = b&0x80 == 0
 		)
-		for n := int8(auto >> 4); n >= 0; n-- {
+		for i := 0; i <= int(autoN); i++ {
 			op := DrawOp{X: sx, Y: sy, Byte: b, Sprite: true}
 			copy(op.SpriteData[:], s.main[addr:])
 			s.pending = append(s.pending, op)
-			if auto&0x1 != 0 { // x
+			if autoX {
 				sy += 8
 			}
-			if auto&0x2 != 0 { // y
+			if autoY {
 				sx += 8
 			}
-			if auto&0x4 != 0 { // addr
-				if b&0x80 == 0 {
+			if autoAddr {
+				if mono {
 					addr += 0x08
 				} else {
 					addr += 0x10
 				}
 			}
 		}
-		if auto&0x1 != 0 { // x
+		if autoX {
 			s.setX(x + 8)
 		}
-		if auto&0x2 != 0 { // y
+		if autoY {
 			s.setY(y + 8)
 		}
 		s.setAddr(addr)
