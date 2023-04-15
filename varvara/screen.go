@@ -1,4 +1,4 @@
-package main
+package varvara
 
 type Screen struct {
 	mem  deviceMem

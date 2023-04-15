@@ -1,4 +1,4 @@
-// Command nux executes Uxn bytecode.
+// Command nux executes Uxn ROMs on a Varvara machine.
 package main
 
 import (
@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/nf/nux/uxn"
+	"github.com/nf/nux/varvara"
 )
 
 func main() {
@@ -38,5 +39,5 @@ func main() {
 	if *debugFlag {
 		logf = log.Printf
 	}
-	Run(rom, *guiFlag, logf)
+	varvara.Run(rom, *guiFlag, logf)
 }

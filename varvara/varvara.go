@@ -1,4 +1,5 @@
-package main
+// Package varvara implements the Varvara computing stack.
+package varvara
 
 import (
 	"log"

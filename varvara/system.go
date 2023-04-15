@@ -1,4 +1,4 @@
-package main
+package varvara
 
 type System struct {
 	Done chan bool
