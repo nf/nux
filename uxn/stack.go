@@ -29,7 +29,7 @@ func (s *stackWrapper) Pop() byte {
 		panic("internal error: Pop after Push in StackWrapper")
 	}
 	if s.Ptr-s.popped == 0 {
-		panic("pop from empty stack")
+		panic(Underflow)
 	}
 	if s.keep {
 		s.popped++
@@ -41,7 +41,7 @@ func (s *stackWrapper) Pop() byte {
 
 func (s *stackWrapper) Push(v byte) {
 	if s.Ptr == 255 {
-		panic("stack overflow")
+		panic(Overflow)
 	}
 	s.Bytes[s.Ptr] = v
 	s.Ptr++

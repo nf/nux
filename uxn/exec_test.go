@@ -1,6 +1,7 @@
 package uxn
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 )
@@ -142,11 +143,28 @@ func TestExec(t *testing.T) {
 
 		c(SFT).work(9, 0x21).want().work(16),
 		c(SFT2).work(1, 9, 0x21).want().work(2, 16),
+
+		c(DIV).work(1, 2, 0).want().work(1, 1, byte(DIV), byte(DivideByZero)).
+			error(HaltError{HaltCode: DivideByZero, Op: DIV, Addr: 0x101}),
+		c(POP).work().want().work(1, 1, byte(POP), byte(Underflow)).
+			error(HaltError{HaltCode: Underflow, Op: POP, Addr: 0x101}),
+		c(POP2).work(42).want().work(1, 1, byte(POP2), byte(Underflow)).
+			error(HaltError{HaltCode: Underflow, Op: POP2, Addr: 0x101}),
+		c(POP2k).work(42).want().work(1, 1, byte(POP2k), byte(Underflow)).
+			error(HaltError{HaltCode: Underflow, Op: POP2k, Addr: 0x101}),
+		c(DUP).work(bytes.Repeat([]byte{7}, 255)...).want().
+			work(1, 1, byte(DUP), byte(Overflow)).
+			error(HaltError{HaltCode: Overflow, Op: DUP, Addr: 0x101}),
+		c(DUP2).work(bytes.Repeat([]byte{7}, 254)...).want().
+			work(1, 1, byte(DUP2), byte(Overflow)).
+			error(HaltError{HaltCode: Overflow, Op: DUP2, Addr: 0x101}),
 	} {
 		t.Run(fmt.Sprintf("%s_%d", Op(c.m.Mem[0x100]), i), func(t *testing.T) {
-			c.m.exec(Nopf)
+			if err := c.m.exec(Nopf); err != c.err {
+				t.Fatalf("got error %v, want %v", err, c.err)
+			}
 			if g, w := c.m.Work, c.w.Work; !stackEq(g, w) {
-				t.Errorf("work stack is %v, want %v", g, w)
+				t.Errorf("work stack is\n\t%v\nwant\n\t%v", g, w)
 			}
 			if g, w := c.m.Ret, c.w.Ret; !stackEq(g, w) {
 				t.Errorf("return stack is %v, want %v", g, w)
@@ -163,6 +181,7 @@ func TestExec(t *testing.T) {
 
 type execTestCase struct {
 	m, w Machine
+	err  error
 	set  *Machine
 }
 
@@ -201,6 +220,11 @@ func (c *execTestCase) pc(addr uint16) *execTestCase {
 
 func (c *execTestCase) want() *execTestCase {
 	c.set = &c.w
+	return c
+}
+
+func (c *execTestCase) error(err error) *execTestCase {
+	c.err = err
 	return c
 }
 

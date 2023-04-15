@@ -29,31 +29,54 @@ func NewMachine(rom []byte) *Machine {
 	return m
 }
 
-func (m *Machine) ExecVector(pc uint16, logf func(string, ...any)) {
+func (m *Machine) ExecVector(pc uint16, logf func(string, ...any)) (err error) {
 	m.PC = pc
 	for m.Mem[m.PC] != 0 {
-		m.exec(logf)
+		if err := m.exec(logf); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func (m *Machine) exec(logf func(string, ...any)) {
+func (m *Machine) exec(logf func(string, ...any)) (err error) {
 	op := Op(m.Mem[m.PC])
 	logf("%x\t%v\t%v\t%v\n", m.PC, op, m.Work, m.Ret)
 	m.PC++
 
+	defer func() {
+		if e := recover(); e != nil {
+			if code, ok := e.(HaltCode); ok {
+				err = HaltError{
+					Addr:     m.PC,
+					Op:       op,
+					HaltCode: code,
+				}
+				m.Work.Ptr = 0
+				st := m.Work.wrap()
+				st.PushShort(m.PC)
+				st.Push(byte(op))
+				st.Push(byte(code))
+				m.Ret.Ptr = 0
+			} else {
+				panic(e)
+			}
+		}
+	}()
+
 	switch op {
 	case BRK:
-		return
+		panic("internal error: tried to exec BRK")
 	case JCI, JMI, JSI:
 		m.PC += 2
 		if op == JCI && m.Work.wrap().Pop() == 0 {
-			return
+			return nil
 		}
 		if op == JSI {
 			m.Ret.wrap().PushShort(m.PC)
 		}
 		m.PC += uint16(m.Mem[m.PC-2])<<8 + uint16(m.Mem[m.PC-1])
-		return
+		return nil
 	}
 
 	var st *stackWrapper
@@ -168,6 +191,8 @@ func (m *Machine) exec(logf func(string, ...any)) {
 			execSimple(op, pushPopper[byte](st))
 		}
 	}
+
+	return nil
 }
 
 func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
@@ -215,6 +240,9 @@ func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
 		s.Push(s.Pop() * s.Pop())
 	case DIV:
 		b, a := s.Pop(), s.Pop()
+		if b == 0 {
+			panic(DivideByZero)
+		}
 		s.Push(a / b)
 	case AND:
 		s.Push(s.Pop() & s.Pop())
@@ -223,9 +251,41 @@ func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
 	case EOR:
 		s.Push(s.Pop() ^ s.Pop())
 	default:
-		panic(fmt.Errorf("%v not implemented", op))
+		panic(fmt.Errorf("internal error: %v not implemented", op))
 	}
 }
 
 // Nopf is a logf function that does nothing.
 func Nopf(string, ...any) {}
+
+// HaltError is returned by ExecVector if an overflow, underflow, or division
+// by zero occurs.
+type HaltError struct {
+	HaltCode
+	Op   Op
+	Addr uint16
+}
+
+func (e HaltError) Error() string {
+	return fmt.Sprintf("%s executing %s at %.4x", e.HaltCode, e.Op, e.Addr)
+}
+
+// HaltCode signifies the type of condition that halted execution.
+type HaltCode byte
+
+const (
+	Underflow    HaltCode = 0x01
+	Overflow     HaltCode = 0x02
+	DivideByZero HaltCode = 0x03
+)
+
+func (c HaltCode) String() string {
+	if s, ok := map[HaltCode]string{
+		Underflow:    "stack underflow",
+		Overflow:     "stack overflow",
+		DivideByZero: "division by zero",
+	}[c]; ok {
+		return s
+	}
+	return fmt.Sprintf("unknown (%.2x)", byte(c))
+}
