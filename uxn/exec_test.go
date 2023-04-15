@@ -144,20 +144,20 @@ func TestExec(t *testing.T) {
 		c(SFT).work(9, 0x21).want().work(16),
 		c(SFT2).work(1, 9, 0x21).want().work(2, 16),
 
-		c(DIV).work(1, 2, 0).want().work(1, 1, byte(DIV), byte(DivideByZero)).
-			error(HaltError{HaltCode: DivideByZero, Op: DIV, Addr: 0x101}),
-		c(POP).work().want().work(1, 1, byte(POP), byte(Underflow)).
-			error(HaltError{HaltCode: Underflow, Op: POP, Addr: 0x101}),
-		c(POP2).work(42).want().work(1, 1, byte(POP2), byte(Underflow)).
-			error(HaltError{HaltCode: Underflow, Op: POP2, Addr: 0x101}),
-		c(POP2k).work(42).want().work(1, 1, byte(POP2k), byte(Underflow)).
-			error(HaltError{HaltCode: Underflow, Op: POP2k, Addr: 0x101}),
+		c(DIV).work(1, 2, 0).want().work(1, 0, byte(DIV), byte(DivideByZero)).
+			error(HaltError{HaltCode: DivideByZero, Op: DIV, Addr: 0x100}),
+		c(POP).work().want().work(1, 0, byte(POP), byte(Underflow)).
+			error(HaltError{HaltCode: Underflow, Op: POP, Addr: 0x100}),
+		c(POP2).work(42).want().work(1, 0, byte(POP2), byte(Underflow)).
+			error(HaltError{HaltCode: Underflow, Op: POP2, Addr: 0x100}),
+		c(POP2k).work(42).want().work(1, 0, byte(POP2k), byte(Underflow)).
+			error(HaltError{HaltCode: Underflow, Op: POP2k, Addr: 0x100}),
 		c(DUP).work(bytes.Repeat([]byte{7}, 255)...).want().
-			work(1, 1, byte(DUP), byte(Overflow)).
-			error(HaltError{HaltCode: Overflow, Op: DUP, Addr: 0x101}),
+			work(1, 0, byte(DUP), byte(Overflow)).
+			error(HaltError{HaltCode: Overflow, Op: DUP, Addr: 0x100}),
 		c(DUP2).work(bytes.Repeat([]byte{7}, 254)...).want().
-			work(1, 1, byte(DUP2), byte(Overflow)).
-			error(HaltError{HaltCode: Overflow, Op: DUP2, Addr: 0x101}),
+			work(1, 0, byte(DUP2), byte(Overflow)).
+			error(HaltError{HaltCode: Overflow, Op: DUP2, Addr: 0x100}),
 	} {
 		t.Run(fmt.Sprintf("%s_%d", Op(c.m.Mem[0x100]), i), func(t *testing.T) {
 			if err := c.m.exec(Nopf); err != c.err {

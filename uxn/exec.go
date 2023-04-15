@@ -40,21 +40,21 @@ func (m *Machine) ExecVector(pc uint16, logf func(string, ...any)) (err error) {
 }
 
 func (m *Machine) exec(logf func(string, ...any)) (err error) {
-	op := Op(m.Mem[m.PC])
-	logf("%x\t%v\t%v\t%v\n", m.PC, op, m.Work, m.Ret)
-	m.PC++
-
+	var (
+		op   = Op(m.Mem[m.PC])
+		opPC = m.PC
+	)
 	defer func() {
 		if e := recover(); e != nil {
 			if code, ok := e.(HaltCode); ok {
 				err = HaltError{
-					Addr:     m.PC,
+					Addr:     opPC,
 					Op:       op,
 					HaltCode: code,
 				}
 				m.Work.Ptr = 0
 				st := m.Work.wrap()
-				st.PushShort(m.PC)
+				st.PushShort(opPC)
 				st.Push(byte(op))
 				st.Push(byte(code))
 				m.Ret.Ptr = 0
@@ -63,6 +63,9 @@ func (m *Machine) exec(logf func(string, ...any)) (err error) {
 			}
 		}
 	}()
+	logf("%x\t%v\t%v\t%v\n", opPC, op, m.Work, m.Ret)
+
+	m.PC++
 
 	switch op {
 	case BRK:
