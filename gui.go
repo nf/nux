@@ -65,7 +65,7 @@ func (v *gui) Draw(screen *ebiten.Image) {
 
 		var (
 			m     *ebiten.Image
-			x, y  = int(op.X), int(op.Y)
+			x, y  = int16(op.X), int16(op.Y)
 			flipX = op.Byte&0x10 != 0
 			flipY = op.Byte&0x20 != 0
 			fg    = op.Byte&0x40 != 0
@@ -98,9 +98,9 @@ func (v *gui) Draw(screen *ebiten.Image) {
 					c = drawBlendingModes[c][blend]
 					if opaque || c > 0 {
 						if fg && c == 0 {
-							m.Set(x, y, color.Transparent)
+							m.Set(int(x), int(y), color.Transparent)
 						} else {
-							m.Set(x, y, v.theme[c])
+							m.Set(int(x), int(y), v.theme[c])
 						}
 					}
 					pxA >>= 1
@@ -125,10 +125,10 @@ func (v *gui) Draw(screen *ebiten.Image) {
 		} else { // pixel
 			c := v.theme[op.Byte&0x3]
 			if op.Byte&0xf0 == 0 {
-				m.Set(x, y, c)
+				m.Set(int(x), int(y), c)
 			} else { // fill
-				for x >= 0 && y >= 0 && x < v.width && y < v.height {
-					m.Set(x, y, c)
+				for x >= 0 && y >= 0 && int(x) < v.width && int(y) < v.height {
+					m.Set(int(x), int(y), c)
 					if flipX {
 						x--
 					} else {
