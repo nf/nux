@@ -17,6 +17,7 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 	}
 	v.sys.Done = make(chan bool)
 	v.scr.main = m.Mem[:]
+	v.scr.sys = &v.sys
 	v.fileA.main = m.Mem[:]
 	v.fileB.main = m.Mem[:]
 	m.Dev = v

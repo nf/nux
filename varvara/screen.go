@@ -3,8 +3,9 @@ package varvara
 type Screen struct {
 	mem  deviceMem
 	main []byte
+	sys  *System
 
-	pending []DrawOp
+	fg, bg *image
 }
 
 func (s *Screen) Vector() uint16 { return s.mem.short(0x0) }
@@ -23,16 +24,76 @@ func (s *Screen) In(p byte) byte {
 	return s.mem[p]
 }
 
-func (s *Screen) Out(p, b byte) {
-	s.mem[p] = b
+type rgba [4]byte
+
+type image struct {
+	w, h int
+	buf  []byte
+}
+
+func newImage(w, h uint16, c rgba) *image {
+	m := &image{int(w), int(h), make([]byte, int(w)*int(h)*4)}
+	for b := m.buf; len(b) > 0; b = b[4:] {
+		copy(b, c[:])
+	}
+	return m
+}
+
+func (m *image) set(x, y int16, c rgba) {
+	n := (int(y)*m.w + int(x)) * 4
+	if n >= len(m.buf) || n < 0 {
+		return
+	}
+	copy(m.buf[n:], c[:])
+}
+
+func (s *Screen) Out(p, v byte) {
+	s.mem[p] = v
+	switch p {
+	case 0xe, 0xf:
+		// Handled below.
+	default:
+		return
+	}
+	var (
+		trans = rgba{0, 0, 0, 0}
+		theme = makeTheme(s.sys)
+	)
+	if s.fg == nil {
+		// TODO: handle change of width/height
+		s.fg = newImage(s.Width(), s.Height(), trans)
+		s.bg = newImage(s.Width(), s.Height(), theme[0])
+	}
+	var (
+		auto = s.Auto()
+		x, y = s.X(), s.Y()
+		b    = DrawByte(v)
+		m    *image
+	)
+	if b.Foreground() {
+		m = s.fg
+	} else {
+		m = s.bg
+	}
 	switch p {
 	case 0xe: // pixel
-		var (
-			auto = s.Auto()
-			x, y = s.X(), s.Y()
-		)
-		op := DrawOp{DrawByte: DrawByte(b), X: x, Y: y}
-		s.pending = append(s.pending, op)
+		c := theme[b.Color()]
+		if b.Fill() {
+			var dx, dy int16 = 1, 1
+			if b.FlipX() {
+				dx = -1
+			}
+			if b.FlipY() {
+				dy = -1
+			}
+			for x := x; x >= 0 && x < int16(m.w); x += dx {
+				for y := y; y >= 0 && y < int16(m.h); y += dy {
+					m.set(x, y, c)
+				}
+			}
+		} else {
+			m.set(x, y, c)
+		}
 		if auto.X() {
 			s.setX(x + 1)
 		}
@@ -41,16 +102,56 @@ func (s *Screen) Out(p, b byte) {
 		}
 	case 0xf: // sprite
 		var (
-			b      = DrawByte(b)
-			auto   = s.Auto()
-			addr   = s.Addr()
-			x, y   = s.X(), s.Y()
-			sx, sy = x, y
+			addr     = s.Addr()
+			sx, sy   = x, y
+			drawZero = b.Blend() == 0 || b.Blend()%5 != 0
 		)
 		for i := int(auto.Count()); i >= 0; i-- {
-			op := DrawOp{DrawByte: b, X: sx, Y: sy, Sprite: true}
-			copy(op.SpriteData[:], s.main[addr:])
-			s.pending = append(s.pending, op)
+			var (
+				spr  = s.main[addr:]
+				x, y = sx, sy
+			)
+			if !b.FlipX() {
+				x += 7
+			}
+			if b.FlipY() {
+				y += 7
+			}
+			for j := 0; j < 8; j++ {
+				pxA := spr[j]
+				pxB := spr[j+8]
+				for i := 0; i < 8; i++ {
+					px := pxA & 1
+					if b.TwoBit() {
+						px |= pxB & 1 << 1
+					}
+					px = drawBlendingModes[px][b.Blend()]
+					if drawZero || px > 0 {
+						c := trans
+						if !b.Foreground() || px > 0 {
+							c = theme[px]
+						}
+						m.set(x, y, c)
+					}
+					pxA >>= 1
+					pxB >>= 1
+					if b.FlipX() {
+						x++
+					} else {
+						x--
+					}
+				}
+				if b.FlipX() {
+					x -= 8
+				} else {
+					x += 8
+				}
+				if b.FlipY() {
+					y--
+				} else {
+					y++
+				}
+			}
 			if auto.X() {
 				sy += 8
 			}
@@ -66,10 +167,10 @@ func (s *Screen) Out(p, b byte) {
 			}
 		}
 		if auto.X() {
-			s.setX(x + 8)
+			s.setX(s.X() + 8)
 		}
 		if auto.Y() {
-			s.setY(y + 8)
+			s.setY(s.Y() + 8)
 		}
 		if auto.Addr() {
 			s.setAddr(addr)
@@ -94,15 +195,14 @@ func (b DrawByte) Foreground() bool { return b&0x40 != 0 }
 func (b DrawByte) Fill() bool       { return b&0x80 != 0 } // pixel
 func (b DrawByte) TwoBit() bool     { return b&0x80 != 0 } // sprite
 
-// DrawOp represents a screen draw operation, painting either pixels or
-// sprites. If a sprite operation, Sprite is true and SpriteData holds
-// the sprite data at the time the sprite byte was written.
-// If a pixel operation, Sprite will be false and SpriteData undefined.
-type DrawOp struct {
-	DrawByte
-	X, Y       int16
-	Sprite     bool
-	SpriteData [16]byte
+func makeTheme(sys *System) [4]rgba {
+	r, g, b := sys.Red(), sys.Green(), sys.Blue()
+	return [4]rgba{
+		{byte(r & 0xf000 >> 8), byte(g & 0xf000 >> 8), byte(b & 0xf000 >> 8), 0xff},
+		{byte(r & 0x0f00 >> 4), byte(g & 0x0f00 >> 4), byte(b & 0x0f00 >> 4), 0xff},
+		{byte(r & 0x00f0), byte(g & 0x00f0), byte(b & 0x00f0), 0xff},
+		{byte(r & 0x000f << 4), byte(g & 0x000f << 4), byte(b & 0x000f << 4), 0xff},
+	}
 }
 
 var drawBlendingModes = [4][16]byte{
