@@ -20,23 +20,23 @@ import (
 
 const debugGUI = false
 
-func newGUI(v *Varvara) *gui {
+func NewGUI(v *Varvara) *GUI {
 	up, done := make(chan bool), make(chan bool)
-	return &gui{
+	return &GUI{
 		Update: up, doUpdate: up,
 		UpdateDone: done, updateDone: done,
 		v: v,
 	}
 }
 
-type gui struct {
+type GUI struct {
 	Update     chan<- bool
 	UpdateDone <-chan bool
 
 	doUpdate   <-chan bool
 	updateDone chan<- bool
 
-	v *Varvara
+	v *Varvara // only touch this in the update method!
 
 	ctrl  ControllerState
 	mouse MouseState
@@ -54,7 +54,7 @@ type updateEvent struct{}
 
 var errCloseGUI = errors.New("close GUI")
 
-func (g *gui) Run(exit <-chan bool) (err error) {
+func (g *GUI) Run(exit <-chan bool) (err error) {
 	defer close(g.updateDone)
 	driver.Main(func(s screen.Screen) {
 		var w screen.Window
@@ -93,7 +93,7 @@ func (g *gui) Run(exit <-chan bool) (err error) {
 	return
 }
 
-func (g *gui) handle(s screen.Screen, w screen.Window, e any) error {
+func (g *GUI) handle(s screen.Screen, w screen.Window, e any) error {
 	if debugGUI {
 		switch e := e.(type) {
 		case paint.Event:
@@ -150,7 +150,7 @@ func (g *gui) handle(s screen.Screen, w screen.Window, e any) error {
 // update synchronizes state between gui and Varvara.
 // It must only be called when the Varvara CPU is not executing.
 // It reports whether the screen needs to be repainted.
-func (g *gui) update(s screen.Screen) (dirty bool, err error) {
+func (g *GUI) update(s screen.Screen) (dirty bool, err error) {
 	g.v.cntrl.Set(&g.ctrl)
 	g.v.mouse.Set(&g.mouse)
 
@@ -188,7 +188,7 @@ func (g *gui) update(s screen.Screen) (dirty bool, err error) {
 	return
 }
 
-func (g *gui) release() {
+func (g *GUI) release() {
 	if g.tex != nil {
 		g.tex.Release()
 	}
@@ -201,7 +201,7 @@ func (g *gui) release() {
 }
 
 // paint draws bg and fg to the given window.
-func (g *gui) paint(w screen.Window) {
+func (g *GUI) paint(w screen.Window) {
 	dst := dstRect(g.wsize.Bounds(), g.bg.Bounds())
 	w.Fill(g.wsize.Bounds(), color.RGBA{0, 0, 0, 0}, draw.Src)
 	g.tex.Upload(image.Point{}, g.bg, g.bg.Bounds())
@@ -228,7 +228,7 @@ func dstRect(w, m image.Rectangle) image.Rectangle {
 	return image.Rectangle{Min: min, Max: min.Add(sz)}
 }
 
-func (g *gui) handleKey(e key.Event) {
+func (g *GUI) handleKey(e key.Event) {
 	var (
 		s = &g.ctrl
 		b = e.Direction == key.DirPress || e.Direction == 10
@@ -264,7 +264,7 @@ func (g *gui) handleKey(e key.Event) {
 	}
 }
 
-func (g *gui) handleMouse(e mouse.Event) {
+func (g *GUI) handleMouse(e mouse.Event) {
 	m := &g.mouse
 	m.X = clampInt16(int(float32(g.size.X) / float32(g.wsize.WidthPx) * e.X))
 	m.Y = clampInt16(int(float32(g.size.Y) / float32(g.wsize.HeightPx) * e.Y))

@@ -9,20 +9,13 @@ import (
 
 func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 	m := uxn.NewMachine(rom)
-	v := &Varvara{}
-	v.scr.main = m.Mem[:]
-	v.scr.sys = &v.sys
-	v.scr.setWidth(0x100)
-	v.scr.setHeight(0x100)
-	v.fileA.main = m.Mem[:]
-	v.fileB.main = m.Mem[:]
-	m.Dev = v
+	v := NewVarvara(m)
 
 	halt := make(chan bool)
 
-	var g *gui
+	var g *GUI
 	if enableGUI {
-		g = newGUI(v)
+		g = NewGUI(v)
 	}
 
 	vector := uint16(0x100)
@@ -38,7 +31,7 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 						continue
 					}
 				}
-				log.Fatalf("uxn.Machine.ExecVector: %v", err)
+				log.Fatalf("internal error: %v", err)
 			}
 			for vector = 0; vector == 0; {
 				select {
@@ -78,9 +71,18 @@ type Varvara struct {
 	fileA File
 	fileB File
 	time  Datetime
+}
 
-	guiUpdate     chan bool
-	guiUpdateDone chan bool
+func NewVarvara(m *uxn.Machine) *Varvara {
+	v := &Varvara{}
+	v.scr.main = m.Mem[:]
+	v.scr.sys = &v.sys
+	v.scr.setWidth(0x100)
+	v.scr.setHeight(0x100)
+	v.fileA.main = m.Mem[:]
+	v.fileB.main = m.Mem[:]
+	m.Dev = v
+	return v
 }
 
 func (v *Varvara) In(p byte) byte {
