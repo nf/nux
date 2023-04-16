@@ -1,8 +1,8 @@
 package varvara
 
-type System struct {
-	Done chan bool
+import "github.com/nf/nux/uxn"
 
+type System struct {
 	mem deviceMem
 }
 
@@ -21,8 +21,7 @@ func (s *System) Out(p, b byte) {
 	switch p {
 	case 0xf:
 		if b != 0 {
-			close(s.Done)
-			select {} // Prevent further execution.
+			panic(uxn.Halt) // Stop execution.
 		}
 	}
 }

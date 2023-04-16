@@ -11,10 +11,15 @@ func newGUI(v *Varvara) *gui {
 	return g
 }
 
-func (v *gui) Run() error { return ebiten.RunGame(v) }
+func (v *gui) Run(exit <-chan bool) error {
+	v.exit = exit
+	return ebiten.RunGame(v)
+}
 
 type gui struct {
 	*Varvara
+
+	exit <-chan bool
 
 	w, h   int
 	fg, bg *ebiten.Image
@@ -69,7 +74,7 @@ func (v *gui) update() {
 
 func (v *gui) Update() error {
 	select {
-	case <-v.sys.Done:
+	case <-v.exit:
 		return ebiten.Termination
 	case <-v.guiUpdate:
 		// This is the only safe time to access Varvara state;

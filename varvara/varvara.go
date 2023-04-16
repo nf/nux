@@ -10,7 +10,6 @@ import (
 func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 	m := uxn.NewMachine(rom)
 	v := &Varvara{}
-	v.sys.Done = make(chan bool)
 	v.scr.main = m.Mem[:]
 	v.scr.sys = &v.sys
 	v.scr.setWidth(0x100)
@@ -18,6 +17,8 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 	v.fileA.main = m.Mem[:]
 	v.fileB.main = m.Mem[:]
 	m.Dev = v
+
+	halt := make(chan bool)
 
 	var g *gui
 	if enableGUI {
@@ -30,7 +31,11 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 	go func() {
 		for {
 			if err := m.ExecVector(vector, logf); err != nil {
-				if _, ok := err.(uxn.HaltError); ok {
+				if h, ok := err.(uxn.HaltError); ok {
+					if h.HaltCode == uxn.Halt {
+						close(halt)
+						return
+					}
 					if vector = v.sys.Halt(); vector > 0 {
 						continue
 					}
@@ -55,12 +60,12 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 
 	if g != nil {
 		// If the GUI is enabled then Run will drive the GUI and the
-		// screen vector until v.sys.Done is closed.
-		if err := g.Run(); err != nil {
+		// screen vector until halt is closed.
+		if err := g.Run(halt); err != nil {
 			log.Fatalf("gui: %v", err)
 		}
 	} else {
-		<-v.sys.Done
+		<-halt
 	}
 
 	return v.sys.ExitCode()
