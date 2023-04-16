@@ -5,7 +5,7 @@ type Screen struct {
 	main []byte  // sprite data
 	sys  *System // r, g, b
 
-	fg, bg *image
+	fg, bg *myImage
 	ops    int // total count of draw operations
 }
 
@@ -58,7 +58,7 @@ func (s *Screen) Out(p, v byte) {
 	s.ops++
 }
 
-func (s *Screen) imageFor(op drawOp) (*image, [4]rgba) {
+func (s *Screen) myImageFor(op drawOp) (*myImage, [4]rgba) {
 	r, g, b := s.sys.Red(), s.sys.Green(), s.sys.Blue()
 	theme := [4]rgba{
 		{byte(r & 0xf000 >> 8), byte(g & 0xf000 >> 8), byte(b & 0xf000 >> 8), 0xff},
@@ -79,7 +79,7 @@ func (s *Screen) imageFor(op drawOp) (*image, [4]rgba) {
 
 func (s *Screen) drawPixel(op drawOp) {
 	var (
-		m, theme = s.imageFor(op)
+		m, theme = s.myImageFor(op)
 		c        = theme[op.Color()]
 	)
 	if op.Fill() {
@@ -108,7 +108,7 @@ func (s *Screen) drawPixel(op drawOp) {
 
 func (s *Screen) drawSprite(op drawOp) {
 	var (
-		m, theme = s.imageFor(op)
+		m, theme = s.myImageFor(op)
 		auto     = s.Auto()
 		addr     = s.Addr()
 		sx, sy   = s.X(), s.Y() // sprite top-left
@@ -182,20 +182,20 @@ type rgba [4]byte
 
 var transparent = rgba{0, 0, 0, 0}
 
-type image struct {
+type myImage struct {
 	w, h int
 	buf  []byte
 }
 
-func newImage(w, h uint16, c rgba) *image {
-	m := &image{int(w), int(h), make([]byte, int(w)*int(h)*4)}
+func newImage(w, h uint16, c rgba) *myImage {
+	m := &myImage{int(w), int(h), make([]byte, int(w)*int(h)*4)}
 	for b := m.buf; len(b) > 0; b = b[4:] {
 		copy(b, c[:])
 	}
 	return m
 }
 
-func (m *image) set(x, y int16, c rgba) {
+func (m *myImage) set(x, y int16, c rgba) {
 	if 0 <= x && int(x) < m.w && 0 <= y && int(y) < m.h {
 		copy(m.buf[(int(y)*m.w+int(x))*4:], c[:])
 	}
