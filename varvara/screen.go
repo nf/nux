@@ -2,8 +2,8 @@ package varvara
 
 type Screen struct {
 	mem  deviceMem
-	main []byte
-	sys  *System
+	main []byte  // sprite data
+	sys  *System // r, g, b
 
 	fg, bg *image
 	ops    int // total count of draw operations
@@ -21,11 +21,164 @@ func (s *Screen) setX(x int16)     { s.mem.setShort(0x8, uint16(x)) }
 func (s *Screen) setY(y int16)     { s.mem.setShort(0xa, uint16(y)) }
 func (s *Screen) setAddr(a uint16) { s.mem.setShort(0xc, a) }
 
+type AutoByte byte
+
+func (b AutoByte) X() bool     { return b&0x01 != 0 }
+func (b AutoByte) Y() bool     { return b&0x02 != 0 }
+func (b AutoByte) Addr() bool  { return b&0x04 != 0 }
+func (b AutoByte) Count() int8 { return int8(b >> 4) }
+
+type drawOp byte
+
+func (b drawOp) Color() byte      { return byte(b) & 0x03 } // pixel only
+func (b drawOp) Blend() byte      { return byte(b) & 0x0f } // sprite only
+func (b drawOp) FlipX() bool      { return b&0x10 != 0 }
+func (b drawOp) FlipY() bool      { return b&0x20 != 0 }
+func (b drawOp) Foreground() bool { return b&0x40 != 0 }
+func (b drawOp) Fill() bool       { return b&0x80 != 0 } // pixel only
+func (b drawOp) TwoBit() bool     { return b&0x80 != 0 } // sprite only
+
 func (s *Screen) In(p byte) byte {
 	return s.mem[p]
 }
 
+func (s *Screen) Out(p, v byte) {
+	s.mem[p] = v
+
+	switch p {
+	default:
+		return
+	case 0xe:
+		s.drawPixel(drawOp(v))
+	case 0xf:
+		s.drawSprite(drawOp(v))
+	}
+	s.ops++
+}
+
+func (s *Screen) imageFor(op drawOp) (*image, [4]rgba) {
+	r, g, b := s.sys.Red(), s.sys.Green(), s.sys.Blue()
+	theme := [4]rgba{
+		{byte(r & 0xf000 >> 8), byte(g & 0xf000 >> 8), byte(b & 0xf000 >> 8), 0xff},
+		{byte(r & 0x0f00 >> 4), byte(g & 0x0f00 >> 4), byte(b & 0x0f00 >> 4), 0xff},
+		{byte(r & 0x00f0), byte(g & 0x00f0), byte(b & 0x00f0), 0xff},
+		{byte(r & 0x000f << 4), byte(g & 0x000f << 4), byte(b & 0x000f << 4), 0xff},
+	}
+	if s.fg == nil || s.fg.w != int(s.Width()) || s.fg.h != int(s.Height()) {
+		s.fg = newImage(s.Width(), s.Height(), transparent)
+		s.bg = newImage(s.Width(), s.Height(), theme[0])
+	}
+	if op.Foreground() {
+		return s.fg, theme
+	} else {
+		return s.bg, theme
+	}
+}
+
+func (s *Screen) drawPixel(op drawOp) {
+	var (
+		m, theme = s.imageFor(op)
+		c        = theme[op.Color()]
+	)
+	if op.Fill() {
+		var dx, dy int16 = 1, 1
+		if op.FlipX() {
+			dx = -1
+		}
+		if op.FlipY() {
+			dy = -1
+		}
+		for x := s.X(); 0 <= x && x < int16(m.w); x += dx {
+			for y := s.Y(); 0 <= y && y < int16(m.h); y += dy {
+				m.set(x, y, c)
+			}
+		}
+	} else {
+		m.set(s.X(), s.Y(), c)
+	}
+	if s.Auto().X() {
+		s.setX(s.X() + 1)
+	}
+	if s.Auto().Y() {
+		s.setY(s.Y() + 1)
+	}
+}
+
+func (s *Screen) drawSprite(op drawOp) {
+	var (
+		m, theme = s.imageFor(op)
+		auto     = s.Auto()
+		addr     = s.Addr()
+		sx, sy   = s.X(), s.Y() // sprite top-left
+		// drawZero reports whether this blending mode should draw
+		// color zero; if false, pixels of color zero are not set.
+		drawZero = op.Blend() == 0 || op.Blend()%5 != 0
+		sprite   = s.main[addr:]
+	)
+	for i := auto.Count(); i >= 0; i-- {
+		var (
+			x, y         = sx, sy
+			dx, dy int16 = 1, 1
+		)
+		if !op.FlipX() {
+			x += 7
+			dx = -1
+		}
+		if op.FlipY() {
+			y += 7
+			dy = -1
+		}
+		for j := 0; j < 8; j++ {
+			pxA, pxB := sprite[j], sprite[j+8]
+			for i := 0; i < 8; i++ {
+				px := pxA & 1
+				pxA >>= 1
+				if op.TwoBit() {
+					px |= pxB & 1 << 1
+					pxB >>= 1
+				}
+				px = drawBlendingModes[px][op.Blend()]
+				if drawZero || px > 0 {
+					c := transparent
+					if !op.Foreground() || px > 0 {
+						c = theme[px]
+					}
+					m.set(x, y, c)
+				}
+				x += dx
+			}
+			x += -dx * 8
+			y += dy
+		}
+		if auto.X() {
+			sy += 8
+		}
+		if auto.Y() {
+			sx += 8
+		}
+		if auto.Addr() {
+			if op.TwoBit() {
+				addr += 0x10
+			} else {
+				addr += 0x08
+			}
+			sprite = s.main[addr:]
+		}
+	}
+	if auto.X() {
+		s.setX(s.X() + 8)
+	}
+	if auto.Y() {
+		s.setY(s.Y() + 8)
+	}
+	if auto.Addr() {
+		s.setAddr(addr)
+	}
+}
+
 type rgba [4]byte
+
+var transparent = rgba{0, 0, 0, 0}
 
 type image struct {
 	w, h int
@@ -43,164 +196,6 @@ func newImage(w, h uint16, c rgba) *image {
 func (m *image) set(x, y int16, c rgba) {
 	if 0 <= x && int(x) < m.w && 0 <= y && int(y) < m.h {
 		copy(m.buf[(int(y)*m.w+int(x))*4:], c[:])
-	}
-}
-
-func (s *Screen) Out(p, v byte) {
-	s.mem[p] = v
-	switch p {
-	case 0xe, 0xf:
-		// Handled below.
-	default:
-		return
-	}
-	s.ops++
-	var (
-		trans = rgba{0, 0, 0, 0}
-		theme = makeTheme(s.sys)
-	)
-	if s.fg == nil || s.fg.w != int(s.Width()) || s.fg.h != int(s.Height()) {
-		s.fg = newImage(s.Width(), s.Height(), trans)
-		s.bg = newImage(s.Width(), s.Height(), theme[0])
-	}
-	var (
-		auto = s.Auto()
-		x, y = s.X(), s.Y()
-		b    = DrawByte(v)
-		m    *image
-	)
-	if b.Foreground() {
-		m = s.fg
-	} else {
-		m = s.bg
-	}
-	switch p {
-	case 0xe: // pixel
-		c := theme[b.Color()]
-		if b.Fill() {
-			var dx, dy int16 = 1, 1
-			if b.FlipX() {
-				dx = -1
-			}
-			if b.FlipY() {
-				dy = -1
-			}
-			for x := x; x >= 0 && x < int16(m.w); x += dx {
-				for y := y; y >= 0 && y < int16(m.h); y += dy {
-					m.set(x, y, c)
-				}
-			}
-		} else {
-			m.set(x, y, c)
-		}
-		if auto.X() {
-			s.setX(x + 1)
-		}
-		if auto.Y() {
-			s.setY(y + 1)
-		}
-	case 0xf: // sprite
-		var (
-			addr     = s.Addr()
-			sx, sy   = x, y
-			drawZero = b.Blend() == 0 || b.Blend()%5 != 0
-		)
-		for i := int(auto.Count()); i >= 0; i-- {
-			var (
-				spr  = s.main[addr:]
-				x, y = sx, sy
-			)
-			if !b.FlipX() {
-				x += 7
-			}
-			if b.FlipY() {
-				y += 7
-			}
-			for j := 0; j < 8; j++ {
-				pxA := spr[j]
-				pxB := spr[j+8]
-				for i := 0; i < 8; i++ {
-					px := pxA & 1
-					if b.TwoBit() {
-						px |= pxB & 1 << 1
-					}
-					px = drawBlendingModes[px][b.Blend()]
-					if drawZero || px > 0 {
-						c := trans
-						if !b.Foreground() || px > 0 {
-							c = theme[px]
-						}
-						m.set(x, y, c)
-					}
-					pxA >>= 1
-					pxB >>= 1
-					if b.FlipX() {
-						x++
-					} else {
-						x--
-					}
-				}
-				if b.FlipX() {
-					x -= 8
-				} else {
-					x += 8
-				}
-				if b.FlipY() {
-					y--
-				} else {
-					y++
-				}
-			}
-			if auto.X() {
-				sy += 8
-			}
-			if auto.Y() {
-				sx += 8
-			}
-			if auto.Addr() {
-				if b.TwoBit() {
-					addr += 0x10
-				} else {
-					addr += 0x08
-				}
-			}
-		}
-		if auto.X() {
-			s.setX(s.X() + 8)
-		}
-		if auto.Y() {
-			s.setY(s.Y() + 8)
-		}
-		if auto.Addr() {
-			s.setAddr(addr)
-		}
-	}
-}
-
-type AutoByte byte
-
-func (b AutoByte) X() bool     { return b&0x01 != 0 }
-func (b AutoByte) Y() bool     { return b&0x02 != 0 }
-func (b AutoByte) Addr() bool  { return b&0x04 != 0 }
-func (b AutoByte) Count() byte { return byte(b >> 4) }
-
-type DrawByte byte
-
-func (b DrawByte) Color() byte      { return byte(b) & 0x03 } // pixel
-func (b DrawByte) Blend() byte      { return byte(b) & 0x0f } // sprite
-func (b DrawByte) FlipX() bool      { return b&0x10 != 0 }
-func (b DrawByte) FlipY() bool      { return b&0x20 != 0 }
-func (b DrawByte) Foreground() bool { return b&0x40 != 0 }
-func (b DrawByte) Fill() bool       { return b&0x80 != 0 } // pixel
-func (b DrawByte) TwoBit() bool     { return b&0x80 != 0 } // sprite
-
-func makeTheme(sys *System) [4]rgba {
-	r, g, b := sys.Red(), sys.Green(), sys.Blue()
-	return [4]rgba{
-		{byte(r & 0xf000 >> 8), byte(g & 0xf000 >> 8), byte(b & 0xf000 >> 8), 0xff},
-		{byte(r & 0x0f00 >> 4), byte(g & 0x0f00 >> 4), byte(b & 0x0f00 >> 4), 0xff},
-		{byte(r & 0x00f0), byte(g & 0x00f0), byte(b & 0x00f0), 0xff},
-		{byte(r & 0x000f << 4), byte(g & 0x000f << 4), byte(b & 0x000f << 4), 0xff},
 	}
 }
 
