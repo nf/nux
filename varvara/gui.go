@@ -22,6 +22,17 @@ type gui struct {
 }
 
 func (v *gui) update() {
+	// Controller
+	v.cntrl.SetButtons(
+		ebiten.IsKeyPressed(ebiten.KeyControl), // A
+		ebiten.IsKeyPressed(ebiten.KeyAlt),     // B
+		ebiten.IsKeyPressed(ebiten.KeyShift),   // Select
+		ebiten.IsKeyPressed(ebiten.KeyHome),    // Start
+		ebiten.IsKeyPressed(ebiten.KeyUp),
+		ebiten.IsKeyPressed(ebiten.KeyDown),
+		ebiten.IsKeyPressed(ebiten.KeyLeft),
+		ebiten.IsKeyPressed(ebiten.KeyRight))
+
 	// Mouse
 	mx, my := ebiten.CursorPosition()
 	wx, wy := ebiten.Wheel()

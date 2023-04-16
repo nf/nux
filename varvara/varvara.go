@@ -41,6 +41,8 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 				select {
 				case <-v.con.Ready:
 					vector = v.con.Vector()
+				case <-v.cntrl.Ready:
+					vector = v.cntrl.Vector()
 				case <-v.mouse.Ready:
 					vector = v.mouse.Vector()
 				case v.guiUpdate <- true:
@@ -68,6 +70,7 @@ type Varvara struct {
 	sys   System
 	con   Console
 	scr   Screen
+	cntrl Controller
 	mouse Mouse
 	fileA File
 	fileB File
@@ -87,6 +90,8 @@ func (v *Varvara) In(p byte) byte {
 		return v.con.In(p)
 	case 0x20:
 		return v.scr.In(p)
+	case 0x80:
+		return v.cntrl.In(p)
 	case 0x90:
 		return v.mouse.In(p)
 	case 0xa0:
@@ -114,6 +119,8 @@ func (v *Varvara) Out(p, b byte) {
 		v.con.Out(p, b)
 	case 0x20:
 		v.scr.Out(p, b)
+	case 0x80:
+		v.cntrl.Out(p, b)
 	case 0x90:
 		v.mouse.Out(p, b)
 	case 0xa0:
