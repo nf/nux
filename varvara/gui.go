@@ -11,6 +11,8 @@ func newGUI(v *Varvara) *gui {
 	return g
 }
 
+func (v *gui) Run() error { return ebiten.RunGame(v) }
+
 type gui struct {
 	*Varvara
 

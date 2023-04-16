@@ -4,8 +4,6 @@ package varvara
 import (
 	"log"
 
-	"github.com/hajimehoshi/ebiten/v2"
-
 	"github.com/nf/nux/uxn"
 )
 
@@ -53,9 +51,11 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 		}
 	}()
 
-	if enableGUI {
-		if err := ebiten.RunGame(g); err != nil {
-			log.Fatalf("ebiten.RunGame: %v", err)
+	if g != nil {
+		// If the GUI is enabled then Run will drive the GUI and the
+		// screen vector until v.sys.Done is closed.
+		if err := g.Run(); err != nil {
+			log.Fatalf("gui: %v", err)
 		}
 	} else {
 		<-v.sys.Done
