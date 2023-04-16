@@ -4,8 +4,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"runtime/pprof"
 
 	"github.com/nf/nux/uxn"
 	"github.com/nf/nux/varvara"
@@ -16,8 +18,9 @@ func main() {
 	log.SetFlags(0)
 
 	var (
-		debugFlag = flag.Bool("debug", false, "print debugging information")
-		guiFlag   = flag.Bool("gui", false, "enable GUI features")
+		cpuProfileFlag = flag.String("cpu_profile", "", "write CPU profile to `file`")
+		debugFlag      = flag.Bool("debug", false, "print debugging information")
+		guiFlag        = flag.Bool("gui", false, "enable GUI features")
 	)
 
 	flag.Usage = func() {
@@ -35,9 +38,27 @@ func main() {
 		log.Fatal(err)
 	}
 
+	var cpuProfile io.Closer
+	if prof := *cpuProfileFlag; prof != "" {
+		f, err := os.Create(prof)
+		if err != nil {
+			log.Fatalf("creating CPU profile file: %w", err)
+		}
+		pprof.StartCPUProfile(f)
+		cpuProfile = f
+	}
+
 	logf := uxn.Nopf
 	if *debugFlag {
 		logf = log.Printf
 	}
-	os.Exit(varvara.Run(rom, *guiFlag, logf))
+
+	code := varvara.Run(rom, *guiFlag, logf)
+
+	if f := cpuProfile; f != nil {
+		pprof.StopCPUProfile()
+		f.Close()
+	}
+
+	os.Exit(code)
 }
