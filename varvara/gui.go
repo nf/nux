@@ -25,7 +25,7 @@ func (v *gui) update() {
 	// Mouse
 	mx, my := ebiten.CursorPosition()
 	wx, wy := ebiten.Wheel()
-	v.mouse.set(
+	v.mouse.Set(
 		clampInt16(mx), clampInt16(my),
 		clampInt16(int(wx*10)), clampInt16(int(wy*10)),
 		ebiten.IsMouseButtonPressed(ebiten.MouseButton0),

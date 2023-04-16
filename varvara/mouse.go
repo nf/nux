@@ -1,15 +1,10 @@
 package varvara
 
 type Mouse struct {
-	Ready <-chan bool
-
-	mem   deviceMem
-	ready chan bool
+	inputDevice
 }
 
-func (m *Mouse) Vector() uint16 { return m.mem.short(0x0) }
-
-func (m *Mouse) set(x, y, scrollX, scrollY int16, b1, b2, b3 bool) {
+func (m *Mouse) Set(x, y, scrollX, scrollY int16, b1, b2, b3 bool) {
 	var u bool
 
 	u = m.mem.setShortChanged(0x2, uint16(x)) || u
@@ -30,21 +25,6 @@ func (m *Mouse) set(x, y, scrollX, scrollY int16, b1, b2, b3 bool) {
 	u = m.mem.setChanged(0x6, b) || u
 
 	if u {
-		select {
-		case m.ready <- true:
-		default:
-		}
+		m.updated()
 	}
-}
-
-func (m *Mouse) In(p byte) byte {
-	if m.ready == nil {
-		m.ready = make(chan bool, 1)
-		m.Ready = m.ready
-	}
-	return m.mem[p]
-}
-
-func (m *Mouse) Out(p, b byte) {
-	m.mem[p] = b
 }
