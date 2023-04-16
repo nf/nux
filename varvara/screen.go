@@ -6,6 +6,7 @@ type Screen struct {
 	sys  *System
 
 	fg, bg *image
+	ops    int // total count of draw operations
 }
 
 func (s *Screen) Vector() uint16 { return s.mem.short(0x0) }
@@ -55,6 +56,7 @@ func (s *Screen) Out(p, v byte) {
 	default:
 		return
 	}
+	s.ops++
 	var (
 		trans = rgba{0, 0, 0, 0}
 		theme = makeTheme(s.sys)

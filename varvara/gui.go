@@ -9,6 +9,7 @@ type gui struct {
 
 	w, h   int
 	fg, bg *ebiten.Image
+	ops    int // updated to match v.scr.ops after copying fg/bg
 }
 
 func (v *gui) update() {
@@ -22,12 +23,16 @@ func (v *gui) update() {
 	if v.fg == nil || v.fg.Bounds().Dx() != v.w || v.fg.Bounds().Dy() != v.h {
 		v.fg = ebiten.NewImage(v.w, v.h)
 		v.bg = ebiten.NewImage(v.w, v.h)
+		v.ops = -1
 	}
-	if v.scr.fg != nil {
-		v.fg.WritePixels(v.scr.fg.buf)
-	}
-	if v.scr.bg != nil {
-		v.bg.WritePixels(v.scr.bg.buf)
+	if o := v.scr.ops; v.ops != o {
+		v.ops = o
+		if m := v.scr.fg; m != nil && m.w == v.w && m.h == v.h {
+			v.fg.WritePixels(m.buf)
+		}
+		if m := v.scr.bg; m != nil && m.w == v.w && m.h == v.h {
+			v.bg.WritePixels(m.buf)
+		}
 	}
 }
 
