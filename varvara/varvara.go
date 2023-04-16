@@ -22,8 +22,6 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 
 	var g *gui
 	if enableGUI {
-		v.guiUpdate = make(chan bool)
-		v.guiUpdateDone = make(chan bool)
 		g = newGUI(v)
 	}
 
@@ -50,8 +48,8 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 					vector = v.cntrl.Vector()
 				case <-v.mouse.Ready:
 					vector = v.mouse.Vector()
-				case v.guiUpdate <- true:
-					<-v.guiUpdateDone
+				case g.Update <- true:
+					<-g.UpdateDone
 					vector = v.scr.Vector()
 				}
 			}
