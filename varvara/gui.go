@@ -4,6 +4,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
+func newGUI(v *Varvara) *gui {
+	ebiten.SetCursorMode(ebiten.CursorModeHidden)
+	g := &gui{Varvara: v}
+	g.update()
+	return g
+}
+
 type gui struct {
 	*Varvara
 
@@ -13,6 +20,17 @@ type gui struct {
 }
 
 func (v *gui) update() {
+	// Mouse
+	mx, my := ebiten.CursorPosition()
+	wx, wy := ebiten.Wheel()
+	v.mouse.set(
+		clampInt16(mx), clampInt16(my),
+		clampInt16(int(wx*10)), clampInt16(int(wy*10)),
+		ebiten.IsMouseButtonPressed(ebiten.MouseButton0),
+		ebiten.IsMouseButtonPressed(ebiten.MouseButton1),
+		ebiten.IsMouseButtonPressed(ebiten.MouseButton2))
+
+	// Screen
 	v.w, v.h = int(v.scr.Width()), int(v.scr.Height())
 	if v.w == 0 {
 		v.w = 160
@@ -59,4 +77,16 @@ func (v *gui) Draw(screen *ebiten.Image) {
 
 func (v *gui) Layout(outerWidth, outerHeight int) (screenWidth, screenHeight int) {
 	return v.w, v.h
+}
+
+func clampInt16(v int) int16 {
+	const max, min = 32767, -32768
+	switch {
+	case v > max:
+		return max
+	case v < min:
+		return min
+	default:
+		return int16(v)
+	}
 }

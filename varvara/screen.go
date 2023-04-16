@@ -17,9 +17,11 @@ func (s *Screen) X() int16       { return int16(s.mem.short(0x8)) }
 func (s *Screen) Y() int16       { return int16(s.mem.short(0xa)) }
 func (s *Screen) Addr() uint16   { return s.mem.short(0xc) }
 
-func (s *Screen) setX(x int16)     { s.mem.setShort(0x8, uint16(x)) }
-func (s *Screen) setY(y int16)     { s.mem.setShort(0xa, uint16(y)) }
-func (s *Screen) setAddr(a uint16) { s.mem.setShort(0xc, a) }
+func (s *Screen) setWidth(w uint16)  { s.mem.setShort(0x2, w) }
+func (s *Screen) setHeight(h uint16) { s.mem.setShort(0x4, h) }
+func (s *Screen) setX(x int16)       { s.mem.setShort(0x8, uint16(x)) }
+func (s *Screen) setY(y int16)       { s.mem.setShort(0xa, uint16(y)) }
+func (s *Screen) setAddr(a uint16)   { s.mem.setShort(0xc, a) }
 
 type AutoByte byte
 
