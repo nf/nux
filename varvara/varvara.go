@@ -8,18 +8,14 @@ import (
 )
 
 func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
-	m := uxn.NewMachine(rom)
-	v := NewVarvara(m)
-
-	halt := make(chan bool)
-
-	var g *GUI
-	if enableGUI {
-		g = NewGUI(v)
-	}
-
-	vector := uint16(0x100)
+	var (
+		m    = uxn.NewMachine(rom)
+		v    = NewVarvara(m)
+		g    = NewGUI(v)
+		halt = make(chan bool)
+	)
 	go func() {
+		vector := uint16(0x100)
 		for {
 			if err := m.ExecVector(vector, logf); err != nil {
 				if h, ok := err.(uxn.HaltError); ok {
@@ -48,8 +44,7 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 			}
 		}
 	}()
-
-	if g != nil {
+	if enableGUI {
 		// If the GUI is enabled then Run will drive the GUI and the
 		// screen vector until halt is closed.
 		if err := g.Run(halt); err != nil {
@@ -58,7 +53,6 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 	} else {
 		<-halt
 	}
-
 	return v.sys.ExitCode()
 }
 
