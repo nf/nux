@@ -1,11 +1,16 @@
 package varvara
 
+import (
+	"image"
+	"image/color"
+)
+
 type Screen struct {
 	mem  deviceMem
 	main []byte  // sprite data
 	sys  *System // r, g, b
 
-	fg, bg *image
+	fg, bg *image.RGBA
 	ops    int // total count of draw operations
 }
 
@@ -58,15 +63,29 @@ func (s *Screen) Out(p, v byte) {
 	s.ops++
 }
 
-func (s *Screen) imageFor(op drawOp) (*image, [4]rgba) {
+var transparent = color.RGBA{0, 0, 0, 0}
+
+func newImage(w, h uint16, c color.RGBA) *image.RGBA {
+	m := image.NewRGBA(image.Rect(0, 0, int(w), int(h)))
+	for b := m.Pix; len(b) >= 4; b = b[4:] {
+		b[0] = c.R
+		b[1] = c.G
+		b[2] = c.B
+		b[3] = c.A
+	}
+	return m
+}
+
+func (s *Screen) myImageFor(op drawOp) (*image.RGBA, [4]color.RGBA) {
 	r, g, b := s.sys.Red(), s.sys.Green(), s.sys.Blue()
-	theme := [4]rgba{
+	theme := [4]color.RGBA{
 		{byte(r & 0xf000 >> 8), byte(g & 0xf000 >> 8), byte(b & 0xf000 >> 8), 0xff},
 		{byte(r & 0x0f00 >> 4), byte(g & 0x0f00 >> 4), byte(b & 0x0f00 >> 4), 0xff},
 		{byte(r & 0x00f0), byte(g & 0x00f0), byte(b & 0x00f0), 0xff},
 		{byte(r & 0x000f << 4), byte(g & 0x000f << 4), byte(b & 0x000f << 4), 0xff},
 	}
-	if s.fg == nil || s.fg.w != int(s.Width()) || s.fg.h != int(s.Height()) {
+	size := image.Point{int(s.Width()), int(s.Height())}
+	if s.fg == nil || s.fg.Bounds().Size() != size {
 		s.fg = newImage(s.Width(), s.Height(), transparent)
 		s.bg = newImage(s.Width(), s.Height(), theme[0])
 	}
@@ -79,24 +98,25 @@ func (s *Screen) imageFor(op drawOp) (*image, [4]rgba) {
 
 func (s *Screen) drawPixel(op drawOp) {
 	var (
-		m, theme = s.imageFor(op)
+		m, theme = s.myImageFor(op)
 		c        = theme[op.Color()]
 	)
 	if op.Fill() {
-		var dx, dy int16 = 1, 1
+		dx, dy := 1, 1
 		if op.FlipX() {
 			dx = -1
 		}
 		if op.FlipY() {
 			dy = -1
 		}
-		for x := s.X(); 0 <= x && x < int16(m.w); x += dx {
-			for y := s.Y(); 0 <= y && y < int16(m.h); y += dy {
-				m.set(x, y, c)
+		size := m.Bounds().Size()
+		for y := int(s.Y()); 0 <= y && y < size.Y; y += dy {
+			for x := int(s.X()); 0 <= x && x < size.X; x += dx {
+				m.SetRGBA(x, y, c)
 			}
 		}
 	} else {
-		m.set(s.X(), s.Y(), c)
+		m.SetRGBA(int(s.X()), int(s.Y()), c)
 	}
 	if s.Auto().X() {
 		s.setX(s.X() + 1)
@@ -108,7 +128,7 @@ func (s *Screen) drawPixel(op drawOp) {
 
 func (s *Screen) drawSprite(op drawOp) {
 	var (
-		m, theme = s.imageFor(op)
+		m, theme = s.myImageFor(op)
 		auto     = s.Auto()
 		addr     = s.Addr()
 		sx, sy   = s.X(), s.Y() // sprite top-left
@@ -119,8 +139,8 @@ func (s *Screen) drawSprite(op drawOp) {
 	)
 	for i := auto.Count(); i >= 0; i-- {
 		var (
-			x, y         = sx, sy
-			dx, dy int16 = 1, 1
+			x, y   = int(sx), int(sy)
+			dx, dy = 1, 1
 		)
 		if !op.FlipX() {
 			x += 7
@@ -145,7 +165,7 @@ func (s *Screen) drawSprite(op drawOp) {
 					if !op.Foreground() || px > 0 {
 						c = theme[px]
 					}
-					m.set(x, y, c)
+					m.Set(x, y, c)
 				}
 				x += dx
 			}
@@ -175,29 +195,6 @@ func (s *Screen) drawSprite(op drawOp) {
 	}
 	if auto.Addr() {
 		s.setAddr(addr)
-	}
-}
-
-type rgba [4]byte
-
-var transparent = rgba{0, 0, 0, 0}
-
-type image struct {
-	w, h int
-	buf  []byte
-}
-
-func newImage(w, h uint16, c rgba) *image {
-	m := &image{int(w), int(h), make([]byte, int(w)*int(h)*4)}
-	for b := m.buf; len(b) > 0; b = b[4:] {
-		copy(b, c[:])
-	}
-	return m
-}
-
-func (m *image) set(x, y int16, c rgba) {
-	if 0 <= x && int(x) < m.w && 0 <= y && int(y) < m.h {
-		copy(m.buf[(int(y)*m.w+int(x))*4:], c[:])
 	}
 }
 

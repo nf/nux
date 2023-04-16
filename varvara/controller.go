@@ -4,39 +4,46 @@ type Controller struct {
 	inputDevice
 }
 
-func (c *Controller) SetButtons(a, b, slct, strt, up, down, left, right bool) {
-	var v byte
-	if a {
-		v |= 0x01
-	}
-	if b {
-		v |= 0x02
-	}
-	if slct {
-		v |= 0x04
-	}
-	if strt {
-		v |= 0x08
-	}
-	if up {
-		v |= 0x10
-	}
-	if down {
-		v |= 0x20
-	}
-	if left {
-		v |= 0x40
-	}
-	if right {
-		v |= 0x80
-	}
-	if c.mem.setChanged(0x2, v) {
-		c.updated()
-	}
+type ControllerState struct {
+	A, B, Select, Start   bool
+	Up, Down, Left, Right bool
+
+	Key byte
 }
 
-func (c *Controller) SetKey(k byte) {
-	if c.mem.setChanged(0x3, k) {
+func (c *Controller) Set(s *ControllerState) {
+	u := false
+
+	var b byte
+	if s.A {
+		b |= 0x01
+	}
+	if s.B {
+		b |= 0x02
+	}
+	if s.Select {
+		b |= 0x04
+	}
+	if s.Start {
+		b |= 0x08
+	}
+	if s.Up {
+		b |= 0x10
+	}
+	if s.Down {
+		b |= 0x20
+	}
+	if s.Left {
+		b |= 0x40
+	}
+	if s.Right {
+		b |= 0x80
+	}
+	u = c.mem.setChanged(0x2, b) || u
+
+	u = c.mem.setChanged(0x3, s.Key) || u
+
+	if u {
 		c.updated()
 	}
 }
