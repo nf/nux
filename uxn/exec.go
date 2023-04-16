@@ -277,6 +277,7 @@ func (e HaltError) Error() string {
 type HaltCode byte
 
 const (
+	Halt         HaltCode = 0x00
 	Underflow    HaltCode = 0x01
 	Overflow     HaltCode = 0x02
 	DivideByZero HaltCode = 0x03
@@ -284,6 +285,7 @@ const (
 
 func (c HaltCode) String() string {
 	if s, ok := map[HaltCode]string{
+		Halt:         "halt",
 		Underflow:    "stack underflow",
 		Overflow:     "stack overflow",
 		DivideByZero: "division by zero",
