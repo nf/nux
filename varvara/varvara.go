@@ -66,6 +66,7 @@ type Varvara struct {
 	scr   Screen
 	fileA File
 	fileB File
+	time  Datetime
 
 	guiUpdate     chan bool
 	guiUpdateDone chan bool
@@ -85,6 +86,8 @@ func (v *Varvara) In(p byte) byte {
 		return v.fileA.In(p)
 	case 0xb0:
 		return v.fileB.In(p)
+	case 0xc0:
+		return v.time.In(p)
 	default:
 		return 0 // Unimplemented device.
 	}
@@ -108,6 +111,8 @@ func (v *Varvara) Out(p, b byte) {
 		v.fileA.Out(p, b)
 	case 0xb0:
 		v.fileB.Out(p, b)
+	case 0xc0:
+		v.time.Out(p, b)
 	}
 }
 
