@@ -41,11 +41,9 @@ func newImage(w, h uint16, c rgba) *image {
 }
 
 func (m *image) set(x, y int16, c rgba) {
-	n := (int(y)*m.w + int(x)) * 4
-	if n >= len(m.buf) || n < 0 {
-		return
+	if 0 <= x && int(x) < m.w && 0 <= y && int(y) < m.h {
+		copy(m.buf[(int(y)*m.w+int(x))*4:], c[:])
 	}
-	copy(m.buf[n:], c[:])
 }
 
 func (s *Screen) Out(p, v byte) {
