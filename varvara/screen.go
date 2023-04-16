@@ -61,8 +61,7 @@ func (s *Screen) Out(p, v byte) {
 		trans = rgba{0, 0, 0, 0}
 		theme = makeTheme(s.sys)
 	)
-	if s.fg == nil {
-		// TODO: handle change of width/height
+	if s.fg == nil || s.fg.w != int(s.Width()) || s.fg.h != int(s.Height()) {
 		s.fg = newImage(s.Width(), s.Height(), trans)
 		s.bg = newImage(s.Width(), s.Height(), theme[0])
 	}
