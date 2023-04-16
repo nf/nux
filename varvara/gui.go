@@ -3,6 +3,7 @@ package varvara
 import (
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	"log"
 	"time"
@@ -50,9 +51,10 @@ func (g *gui) Run(exit <-chan bool) error {
 			e := w.NextEvent()
 
 			switch e := e.(type) {
-			case paint.Event:
 			case key.Event:
 			case mouse.Event:
+			case paint.Event:
+			case size.Event:
 			case update:
 			default:
 				format := "got %#v\n"
@@ -87,7 +89,7 @@ func (g *gui) Run(exit <-chan bool) error {
 			case mouse.Event:
 				g.mouse.X = clampInt16(int(float32(g.size.X) / float32(sz.WidthPx) * e.X))
 				g.mouse.Y = clampInt16(int(float32(g.size.Y) / float32(sz.HeightPx) * e.Y))
-				if e.Button >= 1 && e.Button <= 3 {
+				if e.Button >= 1 && e.Button <= 3 && e.Direction != mouse.DirNone {
 					g.mouse.Button[e.Button-1] = e.Direction == mouse.DirPress
 				}
 
@@ -102,10 +104,12 @@ func (g *gui) Run(exit <-chan bool) error {
 					// uxn cpu is busy
 				}
 				if g.dirty {
+					dst := dstRect(sz.Bounds(), g.bg.Bounds())
+					w.Fill(sz.Bounds(), color.RGBA{0, 0, 0, 0}, draw.Src)
 					g.tex.Upload(image.Point{}, g.bg, g.bg.Bounds())
-					w.Scale(sz.Bounds(), g.tex, g.tex.Bounds(), draw.Src, nil)
+					w.Scale(dst, g.tex, g.tex.Bounds(), draw.Src, nil)
 					g.tex.Upload(image.Point{}, g.fg, g.fg.Bounds())
-					w.Scale(sz.Bounds(), g.tex, g.tex.Bounds(), draw.Over, nil)
+					w.Scale(dst, g.tex, g.tex.Bounds(), draw.Over, nil)
 					w.Publish()
 					g.dirty = false
 				}
@@ -118,12 +122,30 @@ func (g *gui) Run(exit <-chan bool) error {
 	return nil
 }
 
+// dstRect returns the largest rectangle that fits inside w that has the
+// aspect ratio of m.
+func dstRect(w, m image.Rectangle) image.Rectangle {
+	var (
+		wr = float32(w.Dx()) / float32(w.Dy())
+		mr = float32(m.Dx()) / float32(m.Dy())
+		sz image.Point
+	)
+	if wr > mr {
+		sz.X, sz.Y = int(float32(w.Dy())*mr), w.Dy()
+	} else {
+		sz.X, sz.Y = w.Dx(), int(float32(w.Dx())/mr)
+	}
+	min := image.Point{X: (w.Dx() - sz.X) / 2, Y: (w.Dy() - sz.Y) / 2}
+	return image.Rectangle{Min: min, Max: min.Add(sz)}
+}
+
 type gui struct {
 	v *Varvara
 
 	ctrl  ControllerState
 	mouse MouseState
 
+	// Screen
 	size   image.Point
 	fg, bg screen.Buffer
 	tex    screen.Texture
@@ -132,10 +154,7 @@ type gui struct {
 }
 
 func (g *gui) update(s screen.Screen) (err error) {
-	// Buttons
 	g.v.cntrl.Set(&g.ctrl)
-
-	// Mouse
 	g.v.mouse.Set(&g.mouse)
 
 	// Screen
@@ -160,14 +179,13 @@ func (g *gui) update(s screen.Screen) (err error) {
 		g.ops = -1
 	}
 	if o := g.v.scr.ops; g.ops != o {
-		g.ops = o
-
 		if m := g.v.scr.fg; m != nil && m.Bounds().Size() == g.size {
 			copy(g.fg.RGBA().Pix, m.Pix)
 		}
 		if m := g.v.scr.bg; m != nil && m.Bounds().Size() == g.size {
 			copy(g.bg.RGBA().Pix, m.Pix)
 		}
+		g.ops = o
 		g.dirty = true
 	}
 	return
