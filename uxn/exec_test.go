@@ -6,6 +6,32 @@ import (
 	"testing"
 )
 
+func TestNewMachine(t *testing.T) {
+	for _, c := range []struct {
+		romSize int
+	}{
+		{0x00000},
+		{0x00001},
+		{0x0feff},
+		{0x0ff00},
+		{0x0ff01},
+		{0x1ff00},
+	} {
+		t.Run(fmt.Sprintf("%.5x", c.romSize), func(t *testing.T) {
+			m := NewMachine(bytes.Repeat([]byte{1}, c.romSize))
+			for i := range m.Mem {
+				w := byte(0)
+				if i >= 0x100 && i < 0x100+c.romSize {
+					w = 1
+				}
+				if g := m.Mem[i]; g != w {
+					t.Errorf("Mem[%.5x] == %.2x, want %.2x", i, g, w)
+				}
+			}
+		})
+	}
+}
+
 func TestExec(t *testing.T) {
 	c := newExecTestCase
 	for i, c := range []*execTestCase{
@@ -170,7 +196,11 @@ func TestExec(t *testing.T) {
 				t.Errorf("return stack is %v, want %v", g, w)
 			}
 			if g, w := c.m.Mem, c.w.Mem; g != w {
-				t.Errorf("got memory:\n\t%v\nwant:\n\t%v", g[:0x110], w[:0x110])
+				for i := 0; i < len(g) && i < len(w); i++ {
+					if g[i] != w[i] {
+						t.Errorf("memory[%.4x] = %.2x, want %.2x", i, g[i], w[i])
+					}
+				}
 			}
 			if g, w := c.m.PC, c.w.PC; g != w {
 				t.Errorf("PC is %x, want %x", g, w)
@@ -180,18 +210,17 @@ func TestExec(t *testing.T) {
 }
 
 type execTestCase struct {
-	m, w Machine
+	m, w *Machine
 	err  error
 	set  *Machine
 }
 
 func newExecTestCase(op Op) *execTestCase {
 	c := &execTestCase{}
-	c.m.Mem[0x100] = byte(op)
-	c.m.PC = 0x100
-	c.w.Mem[0x100] = byte(op)
-	c.w.PC = 0x101
-	c.set = &c.m
+	c.m = NewMachine([]byte{byte(op)})
+	c.w = NewMachine([]byte{byte(op)})
+	c.w.PC++
+	c.set = c.m
 	return c
 }
 
@@ -207,7 +236,7 @@ func (c *execTestCase) ret(bytes ...byte) *execTestCase {
 
 func (c *execTestCase) mem(addr uint16, bytes ...byte) *execTestCase {
 	copy(c.set.Mem[addr:], bytes)
-	if c.set == &c.m {
+	if c.set == c.m {
 		copy(c.w.Mem[addr:], bytes)
 	}
 	return c
@@ -219,7 +248,7 @@ func (c *execTestCase) pc(addr uint16) *execTestCase {
 }
 
 func (c *execTestCase) want() *execTestCase {
-	c.set = &c.w
+	c.set = c.w
 	return c
 }
 

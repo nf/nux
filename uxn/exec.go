@@ -8,7 +8,7 @@ import (
 
 // Machine is an implementation of a Uxn CPU.
 type Machine struct {
-	Mem  [64 << 10]byte
+	Mem  [0x100000]byte
 	PC   uint16
 	Work Stack
 	Ret  Stack
@@ -23,8 +23,11 @@ type Device interface {
 	OutShort(port byte, value uint16)
 }
 
+// NewMachine returns a Uxn CPU loaded with the given rom at 0x100.
+// If the rom is larger than 0xfeff bytes then Mem is grown to accommodate it,
+// even though the Uxn CPU cannot directly address the extra memory.
 func NewMachine(rom []byte) *Machine {
-	m := &Machine{}
+	m := &Machine{PC: 0x100}
 	copy(m.Mem[0x100:], rom)
 	return m
 }
