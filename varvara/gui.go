@@ -269,9 +269,17 @@ func (g *GUI) handleKey(e key.Event) {
 }
 
 func (g *GUI) handleMouse(e mouse.Event) {
-	m := &g.mouse
-	m.X = clampInt16(int(float32(g.size.X) / float32(g.wsize.WidthPx) * e.X))
-	m.Y = clampInt16(int(float32(g.size.Y) / float32(g.wsize.HeightPx) * e.Y))
+	if g.bg == nil {
+		return
+	}
+	var (
+		m  = &g.mouse
+		sx = float64(e.X)
+		sy = float64(e.Y)
+		t  = invert(paintTransform(g.wsize.Bounds(), g.bg.Bounds()))
+	)
+	m.X = clampInt16(int(t[0]*sx + t[1]*sy + t[2]))
+	m.Y = clampInt16(int(t[3]*sx + t[4]*sy + t[5]))
 	if e.Button >= 1 && e.Button <= 3 && e.Direction != mouse.DirNone {
 		m.Button[e.Button-1] = e.Direction == mouse.DirPress
 	}
@@ -286,5 +294,25 @@ func clampInt16(v int) int16 {
 		return min
 	default:
 		return int16(v)
+	}
+}
+
+func invert(m f64.Aff3) f64.Aff3 {
+	m00 := +m[3*1+1]
+	m01 := -m[3*0+1]
+	m02 := +m[3*1+2]*m[3*0+1] - m[3*1+1]*m[3*0+2]
+	m10 := -m[3*1+0]
+	m11 := +m[3*0+0]
+	m12 := +m[3*1+0]*m[3*0+2] - m[3*1+2]*m[3*0+0]
+
+	det := m00*m11 - m10*m01
+
+	return f64.Aff3{
+		m00 / det,
+		m01 / det,
+		m02 / det,
+		m10 / det,
+		m11 / det,
+		m12 / det,
 	}
 }
