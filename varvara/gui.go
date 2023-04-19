@@ -43,12 +43,13 @@ type GUI struct {
 	mouse MouseState
 
 	// Screen
-	wsize  size.Event
-	size   image.Point
-	fg, bg screen.Buffer
-	tex    screen.Texture
-	ops    int // updated to match v.scr.ops after copying fg/bg
-	dirty  bool
+	wsize    size.Event
+	size     image.Point
+	fg, bg   screen.Buffer
+	tex      screen.Texture
+	xform    f64.Aff3 // from varvara buffer to window buffer
+	xformInv f64.Aff3
+	ops      int // updated to match v.scr.ops after copying fg/bg
 }
 
 type updateEvent struct{}
@@ -115,6 +116,9 @@ func (g *GUI) handle(s screen.Screen, w screen.Window, e any) error {
 			// Window closed.
 			return errCloseGUI
 		}
+		if g.bg != nil {
+			g.updateTransform()
+		}
 
 	case lifecycle.Event:
 		if e.To == lifecycle.StageDead {
@@ -173,6 +177,7 @@ func (g *GUI) update(s screen.Screen) (err error) {
 			return
 		}
 		g.ops = -1
+		g.updateTransform()
 	}
 	if o := g.v.scr.ops; g.ops != o {
 		if m := g.v.scr.fg; m != nil && m.Bounds().Size() == g.size {
@@ -184,6 +189,11 @@ func (g *GUI) update(s screen.Screen) (err error) {
 		g.ops = o
 	}
 	return
+}
+
+func (g *GUI) updateTransform() {
+	g.xform = paintTransform(g.wsize.Bounds(), g.bg.Bounds())
+	g.xformInv = invert(g.xform)
 }
 
 func (g *GUI) release() {
@@ -201,12 +211,11 @@ func (g *GUI) release() {
 // paint draws bg and fg to the given window.
 func (g *GUI) paint(w screen.Window) {
 	w.Fill(g.wsize.Bounds(), color.RGBA{0, 0, 0, 0}, draw.Src)
-	if g.bg != nil {
-		s2d := paintTransform(g.wsize.Bounds(), g.bg.Bounds())
+	if g.bg != nil { // fg, tex, and xform must also be set
 		g.tex.Upload(image.Point{}, g.bg, g.bg.Bounds())
-		w.Draw(s2d, g.tex, g.tex.Bounds(), draw.Src, nil)
+		w.Draw(g.xform, g.tex, g.tex.Bounds(), draw.Src, nil)
 		g.tex.Upload(image.Point{}, g.fg, g.fg.Bounds())
-		w.Draw(s2d, g.tex, g.tex.Bounds(), draw.Over, nil)
+		w.Draw(g.xform, g.tex, g.tex.Bounds(), draw.Over, nil)
 	}
 	w.Publish()
 }
@@ -270,22 +279,23 @@ func (g *GUI) handleKey(e key.Event) {
 
 func (g *GUI) handleMouse(e mouse.Event) {
 	if g.bg == nil {
+		// Screen not initialized; can't compute mouse x/y.
 		return
 	}
 	var (
 		m  = &g.mouse
 		sx = float64(e.X)
 		sy = float64(e.Y)
-		t  = invert(paintTransform(g.wsize.Bounds(), g.bg.Bounds()))
+		t  = g.xformInv
 	)
-	m.X = clampInt16(int(t[0]*sx + t[1]*sy + t[2]))
-	m.Y = clampInt16(int(t[3]*sx + t[4]*sy + t[5]))
+	m.X = clampInt16(t[0]*sx + t[1]*sy + t[2])
+	m.Y = clampInt16(t[3]*sx + t[4]*sy + t[5])
 	if e.Button >= 1 && e.Button <= 3 && e.Direction != mouse.DirNone {
 		m.Button[e.Button-1] = e.Direction == mouse.DirPress
 	}
 }
 
-func clampInt16(v int) int16 {
+func clampInt16(v float64) int16 {
 	const max, min = 32767, -32768
 	switch {
 	case v > max:
