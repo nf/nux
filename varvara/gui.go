@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/exp/shiny/driver"
 	"golang.org/x/exp/shiny/screen"
+	"golang.org/x/image/math/f64"
 	"golang.org/x/mobile/event/key"
 	"golang.org/x/mobile/event/lifecycle"
 	"golang.org/x/mobile/event/mouse"
@@ -199,30 +200,36 @@ func (g *GUI) release() {
 
 // paint draws bg and fg to the given window.
 func (g *GUI) paint(w screen.Window) {
-	dst := dstRect(g.wsize.Bounds(), g.bg.Bounds())
 	w.Fill(g.wsize.Bounds(), color.RGBA{0, 0, 0, 0}, draw.Src)
-	g.tex.Upload(image.Point{}, g.bg, g.bg.Bounds())
-	w.Scale(dst, g.tex, g.tex.Bounds(), draw.Src, nil)
-	g.tex.Upload(image.Point{}, g.fg, g.fg.Bounds())
-	w.Scale(dst, g.tex, g.tex.Bounds(), draw.Over, nil)
+	if g.bg != nil {
+		s2d := paintTransform(g.wsize.Bounds(), g.bg.Bounds())
+		g.tex.Upload(image.Point{}, g.bg, g.bg.Bounds())
+		w.Draw(s2d, g.tex, g.tex.Bounds(), draw.Src, nil)
+		g.tex.Upload(image.Point{}, g.fg, g.fg.Bounds())
+		w.Draw(s2d, g.tex, g.tex.Bounds(), draw.Over, nil)
+	}
 	w.Publish()
 }
 
-// dstRect returns the largest rectangle that fits inside w that has the
-// aspect ratio of m.
-func dstRect(w, m image.Rectangle) image.Rectangle {
+// paintTransform returns the affine transform that maps the pixels in the
+// source to the largest rectangle that fits inside the destination.
+func paintTransform(dst, src image.Rectangle) f64.Aff3 {
 	var (
-		wr = float32(w.Dx()) / float32(w.Dy())
-		mr = float32(m.Dx()) / float32(m.Dy())
-		sz image.Point
+		wx, wy = float64(dst.Dx()), float64(dst.Dy())
+		sx, sy = float64(src.Dx()), float64(src.Dy())
+		wr     = float64(wx) / float64(wy)
+		sr     = float64(sx) / float64(sy)
+		dx, dy float64
 	)
-	if wr > mr {
-		sz.X, sz.Y = int(float32(w.Dy())*mr), w.Dy()
+	if wr > sr {
+		dx, dy = wy*sr, wy
 	} else {
-		sz.X, sz.Y = w.Dx(), int(float32(w.Dx())/mr)
+		dx, dy = wx, wx/sr
 	}
-	min := image.Point{X: (w.Dx() - sz.X) / 2, Y: (w.Dy() - sz.Y) / 2}
-	return image.Rectangle{Min: min, Max: min.Add(sz)}
+	return f64.Aff3{
+		dx / sx, 0, (wx - dx) / 2,
+		0, dy / sy, (wy - dy) / 2,
+	}
 }
 
 func (g *GUI) handleKey(e key.Event) {
