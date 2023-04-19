@@ -129,17 +129,16 @@ func (g *GUI) handle(s screen.Screen, w screen.Window, e any) error {
 	case updateEvent:
 		select {
 		case <-g.doUpdate:
-			dirty, err := g.update(s)
+			err := g.update(s)
+			g.updateDone <- true
 			if err != nil {
 				return fmt.Errorf("update: %v", err)
 			}
-			g.updateDone <- true
-			if dirty {
-				g.paint(w)
-			}
+
 		default:
 			// uxn cpu is busy
 		}
+		g.paint(w)
 
 	case error:
 		log.Printf("gui: %v", e)
@@ -149,8 +148,7 @@ func (g *GUI) handle(s screen.Screen, w screen.Window, e any) error {
 
 // update synchronizes state between gui and Varvara.
 // It must only be called when the Varvara CPU is not executing.
-// It reports whether the screen needs to be repainted.
-func (g *GUI) update(s screen.Screen) (dirty bool, err error) {
+func (g *GUI) update(s screen.Screen) (err error) {
 	g.v.cntrl.Set(&g.ctrl)
 	g.v.mouse.Set(&g.mouse)
 
@@ -183,7 +181,6 @@ func (g *GUI) update(s screen.Screen) (dirty bool, err error) {
 			copy(g.bg.RGBA().Pix, m.Pix)
 		}
 		g.ops = o
-		dirty = true
 	}
 	return
 }
