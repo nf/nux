@@ -1,12 +1,15 @@
 package varvara
 
 import (
+	"log"
+
 	"github.com/nf/nux/uxn"
 )
 
 type System struct {
 	mem  deviceMem
 	main []byte
+	m    *uxn.Machine
 }
 
 func (s *System) Halt() uint16  { return s.mem.short(0x0) }
@@ -40,6 +43,8 @@ func (s *System) Out(p, b byte) {
 				s.main[dst+int(dstAddr+uint16(i))] = s.main[src+int(srcAddr+uint16(i))]
 			}
 		}
+	case 0xe:
+		log.Printf("%x\t%v\t%v\n", s.m.PC, s.m.Work, s.m.Ret)
 	case 0xf:
 		if b != 0 {
 			panic(uxn.Halt) // Stop execution.

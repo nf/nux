@@ -70,6 +70,7 @@ type Varvara struct {
 func NewVarvara(m *uxn.Machine) *Varvara {
 	v := &Varvara{}
 	v.sys.main = m.Mem[:]
+	v.sys.m = m
 	v.scr.main = m.Mem[:]
 	v.scr.sys = &v.sys
 	v.scr.setWidth(0x100)
