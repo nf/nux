@@ -13,8 +13,13 @@ func (v *Varvara) Run(enableGUI, devMode bool, logf func(string, ...any)) (exitC
 		halt = make(chan bool)
 	)
 	go func() {
+		var bl backlog
+		if devMode {
+			logf = bl.LazyPrintf
+		}
 		vector := uint16(0x100)
 		reset := func(newV *Varvara) {
+			bl.Reset()
 			v = newV
 			g.Swap(v)
 			vector = 0x100
@@ -34,6 +39,7 @@ func (v *Varvara) Run(enableGUI, devMode bool, logf func(string, ...any)) (exitC
 				if !devMode {
 					log.Fatalf("uxn: %v", err)
 				}
+				bl.Emit()
 				log.Printf("uxn: %v", err)
 				reset(<-v.reset)
 				continue
@@ -195,4 +201,43 @@ func (m *deviceMem) setShortChanged(addr byte, v uint16) bool {
 
 func short(hi, lo byte) uint16 {
 	return uint16(hi)<<8 + uint16(lo)
+}
+
+type backlog struct {
+	entries []logEntry
+	n       int
+}
+
+type logEntry struct {
+	format string
+	args   []any
+}
+
+const maxBacklog = 100
+
+func (b *backlog) LazyPrintf(format string, args ...any) {
+	if b.n < len(b.entries) {
+		b.entries[b.n] = logEntry{format, args}
+	} else {
+		b.entries = append(b.entries, logEntry{format, args})
+	}
+	b.n = (b.n + 1) % maxBacklog
+}
+
+func (b *backlog) Emit() {
+	if len(b.entries) == 0 {
+		return
+	}
+	for i := b.n; ; i++ {
+		i %= len(b.entries)
+		log.Printf(b.entries[i].format, b.entries[i].args...)
+		if (i+1)%maxBacklog == b.n {
+			break
+		}
+	}
+}
+
+func (b *backlog) Reset() {
+	b.entries = b.entries[:0]
+	b.n = 0
 }
