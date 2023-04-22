@@ -23,6 +23,7 @@ func (v *Varvara) Run(enableGUI, devMode bool, logf func(string, ...any)) (exitC
 			v = newV
 			g.Swap(v)
 			vector = 0x100
+			log.Printf("uxn: running from 0x0100")
 		}
 		for {
 			if err := v.m.ExecVector(vector, logf); err != nil {
