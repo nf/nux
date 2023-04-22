@@ -4,6 +4,7 @@ package uxn
 
 import (
 	"fmt"
+	"sync/atomic"
 )
 
 // Machine is an implementation of a Uxn CPU.
@@ -13,6 +14,8 @@ type Machine struct {
 	Work Stack
 	Ret  Stack
 	Dev  Device
+
+	interrupt int32
 }
 
 // Device provides access to external systems connected to the Uxn CPU.
@@ -31,6 +34,8 @@ func NewMachine(rom []byte) *Machine {
 	copy(m.Mem[0x100:], rom)
 	return m
 }
+
+func (m *Machine) Halt() { atomic.StoreInt32(&m.interrupt, 0x1) }
 
 func (m *Machine) ExecVector(pc uint16, logf func(string, ...any)) (err error) {
 	m.PC = pc
@@ -67,6 +72,10 @@ func (m *Machine) exec(logf func(string, ...any)) (err error) {
 		}
 	}()
 	logf("%x\t%v\t%v\t%v\n", opPC, op, m.Work, m.Ret)
+
+	if atomic.LoadInt32(&m.interrupt) > 0 {
+		panic(Halt)
+	}
 
 	m.PC++
 
