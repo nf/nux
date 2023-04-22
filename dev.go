@@ -64,9 +64,11 @@ func devMode(gui bool, talFile string) error {
 }
 
 func devBuild(talFile, romFile string) ([]byte, error) {
-	out, err := exec.Command("uxnasm", talFile, romFile).CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("uxnasm: %v\n%s", err, out)
+	cmd := exec.Command("uxnasm", talFile, romFile)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("uxnasm: %v", err)
 	}
 	return os.ReadFile(romFile)
 }
