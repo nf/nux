@@ -7,27 +7,36 @@ import (
 	"github.com/nf/nux/uxn"
 )
 
-func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
+func (v *Varvara) Run(enableGUI, devMode bool, logf func(string, ...any)) (exitCode int) {
 	var (
-		m    = uxn.NewMachine(rom)
-		v    = NewVarvara(m)
 		g    = NewGUI(v)
 		halt = make(chan bool)
 	)
 	go func() {
 		vector := uint16(0x100)
+		reset := func(newV *Varvara) {
+			v = newV
+			g.Swap(v)
+			vector = 0x100
+		}
 		for {
-			if err := m.ExecVector(vector, logf); err != nil {
+			if err := v.m.ExecVector(vector, logf); err != nil {
 				if h, ok := err.(uxn.HaltError); ok {
 					if h.HaltCode == uxn.Halt {
-						close(halt)
-						return
-					}
-					if vector = v.sys.Halt(); vector > 0 {
+						if !devMode {
+							close(halt)
+							return
+						}
+					} else if vector = v.sys.Halt(); vector > 0 {
 						continue
 					}
 				}
-				log.Fatalf("internal error: %v", err)
+				if !devMode {
+					log.Fatalf("uxn: %v", err)
+				}
+				log.Printf("uxn: %v", err)
+				reset(<-v.reset)
+				continue
 			}
 			for vector = 0; vector == 0; {
 				select {
@@ -40,6 +49,8 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 				case g.Update <- true:
 					<-g.UpdateDone
 					vector = v.scr.Vector()
+				case newV := <-v.reset:
+					reset(newV)
 				}
 			}
 		}
@@ -57,6 +68,7 @@ func Run(rom []byte, enableGUI bool, logf func(string, ...any)) (exitCode int) {
 }
 
 type Varvara struct {
+	m     *uxn.Machine
 	sys   System
 	con   Console
 	scr   Screen
@@ -65,10 +77,25 @@ type Varvara struct {
 	fileA File
 	fileB File
 	time  Datetime
+
+	reset chan *Varvara
 }
 
-func NewVarvara(m *uxn.Machine) *Varvara {
+// Reset halts the current machine, allocates a new Varvara running the given
+// rom, and instructs the Run loop to replace its Varvara with the new one.
+// Callers should stop using v and replace it with the returned Varvara
+// instead. This function should only be used when Run is invoked with devMode.
+func (v *Varvara) Reset(rom []byte) *Varvara {
+	v.m.Halt()
+	newV := New(rom)
+	v.reset <- newV
+	return newV
+}
+
+func New(rom []byte) *Varvara {
+	m := uxn.NewMachine(rom)
 	v := &Varvara{}
+	v.m = m
 	v.sys.main = m.Mem[:]
 	v.sys.m = m
 	v.scr.main = m.Mem[:]
@@ -77,6 +104,7 @@ func NewVarvara(m *uxn.Machine) *Varvara {
 	v.scr.setHeight(0x100)
 	v.fileA.main = m.Mem[:]
 	v.fileB.main = m.Mem[:]
+	v.reset = make(chan *Varvara)
 	m.Dev = v
 	return v
 }

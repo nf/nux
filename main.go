@@ -21,16 +21,25 @@ func main() {
 		cpuProfileFlag = flag.String("cpu_profile", "", "write CPU profile to `file`")
 		debugFlag      = flag.Bool("debug", false, "print debugging information")
 		guiFlag        = flag.Bool("gui", false, "enable GUI features")
+		devFlag        = flag.Bool("dev", false, "enable developer mode (live re-build and run an untxal program)")
 	)
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: %s <program.rom>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "       %s -dev <program.tal>\n", os.Args[0])
 		flag.PrintDefaults()
 		os.Exit(2)
 	}
 	flag.Parse()
 	if flag.NArg() != 1 {
 		flag.Usage()
+	}
+
+	if *devFlag {
+		if err := devMode(*guiFlag, flag.Arg(0)); err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 
 	rom, err := os.ReadFile(flag.Arg(0))
@@ -42,7 +51,7 @@ func main() {
 	if prof := *cpuProfileFlag; prof != "" {
 		f, err := os.Create(prof)
 		if err != nil {
-			log.Fatalf("creating CPU profile file: %w", err)
+			log.Fatalf("creating CPU profile file: %v", err)
 		}
 		pprof.StartCPUProfile(f)
 		cpuProfile = f
@@ -53,7 +62,7 @@ func main() {
 		logf = log.Printf
 	}
 
-	code := varvara.Run(rom, *guiFlag, logf)
+	code := varvara.New(rom).Run(*guiFlag, false, logf)
 
 	if f := cpuProfile; f != nil {
 		pprof.StopCPUProfile()

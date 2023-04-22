@@ -37,7 +37,8 @@ type GUI struct {
 	doUpdate   <-chan bool
 	updateDone chan<- bool
 
-	v *Varvara // only touch this in the update method!
+	v    *Varvara // only touch this in the update method!
+	newV *Varvara // set after Swap, unset once swap happens
 
 	ctrl  ControllerState
 	mouse MouseState
@@ -51,6 +52,11 @@ type GUI struct {
 	xformInv f64.Aff3
 	ops      int // updated to match v.scr.ops after copying fg/bg
 }
+
+// Swap replaces the Varvara attached to GUI with the given one.
+// This operation takes effect on the next update event.
+// Swap may only be called when a GUI update is not in progress.
+func (g *GUI) Swap(v *Varvara) { g.newV = v }
 
 type updateEvent struct{}
 
@@ -154,6 +160,15 @@ func (g *GUI) handle(s screen.Screen, w screen.Window, e any) error {
 // update synchronizes state between gui and Varvara.
 // It must only be called when the Varvara CPU is not executing.
 func (g *GUI) update(s screen.Screen) (err error) {
+	resetScreen := false
+	if g.newV != nil {
+		g.v = g.newV
+		g.newV = nil
+		g.ctrl = ControllerState{}
+		g.mouse = MouseState{}
+		resetScreen = true
+	}
+
 	g.v.cntrl.Set(&g.ctrl)
 	g.v.mouse.Set(&g.mouse)
 
@@ -162,7 +177,7 @@ func (g *GUI) update(s screen.Screen) (err error) {
 	if g.size.X == 0 || g.size.Y == 0 {
 		g.size = image.Point{0x100, 0x100}
 	}
-	if g.tex == nil || g.tex.Size() != g.size {
+	if resetScreen || g.tex == nil || g.tex.Size() != g.size {
 		g.release()
 		g.fg, err = s.NewBuffer(g.size)
 		if err != nil {
