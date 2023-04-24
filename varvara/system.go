@@ -46,14 +46,11 @@ func (s *System) Out(p, b byte) {
 		}
 	case 0xe:
 		if s.state != nil {
-			s.state(s.m)
+			s.state(s.m, false)
 		} else {
 			log.Printf("%x\t%v\t%v\n", s.m.PC, s.m.Work, s.m.Ret)
 		}
 	case 0xf:
-		if s.state != nil {
-			s.state(s.m)
-		}
 		if b != 0 {
 			panic(uxn.Halt) // Stop execution.
 		}

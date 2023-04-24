@@ -15,10 +15,10 @@ type Runner struct {
 
 	swap     chan []byte
 	swapDone chan bool
-	debug    chan string
+	debug    chan debugOp
 }
 
-type StateFunc func(*uxn.Machine)
+type StateFunc func(m *uxn.Machine, halt bool)
 
 func NewRunner(enableGUI, devMode bool, state StateFunc) *Runner {
 	r := &Runner{
@@ -27,12 +27,17 @@ func NewRunner(enableGUI, devMode bool, state StateFunc) *Runner {
 		state:    state,
 		swap:     make(chan []byte),
 		swapDone: make(chan bool),
-		debug:    make(chan string),
+		debug:    make(chan debugOp),
 	}
 	return r
 }
 
-func (r *Runner) Debug(cmd string) { r.debug <- cmd }
+type debugOp struct {
+	cmd  string
+	addr uint16
+}
+
+func (r *Runner) Debug(cmd string, addr uint16) { r.debug <- debugOp{cmd, addr} }
 
 func (r *Runner) Swap(rom []byte) {
 	if !r.dev {
@@ -77,7 +82,9 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 			select {
 			case rom = <-r.swap:
 				halt()
+				bp := v.breakpoint
 				v = New(rom, r.state)
+				v.breakpoint = bp
 				g.Swap(v)
 				exec()
 				r.swapDone <- true
@@ -94,20 +101,24 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 					return
 				}
 			case op := <-r.debug:
-				switch op {
-				case "halt":
+				switch op.cmd {
+				case "halt", "h":
 					halt()
-				case "reset":
+				case "reset", "r":
 					halt()
+					bp := v.breakpoint
 					v = New(rom, r.state)
+					v.breakpoint = bp
 					g.Swap(v)
 					exec()
-				case "p":
+				case "pause", "p":
 					v.Pause()
-				case "s":
+				case "step", "s":
 					v.Step()
-				case "c":
+				case "cont", "c":
 					v.Continue()
+				case "bp":
+					v.SetBreakpoint(op.addr)
 				case "exit":
 					halt()
 					close(exit)
@@ -141,10 +152,11 @@ type Varvara struct {
 
 	state StateFunc
 
-	interrupt int32
-	halted    bool
-	halt      chan bool
-	cont      chan bool
+	interrupt  int32
+	breakpoint int32
+	halted     bool
+	halt       chan bool
+	cont       chan bool
 }
 
 func New(rom []byte, state StateFunc) *Varvara {
@@ -182,21 +194,30 @@ func (v *Varvara) Pause() {
 
 func (v *Varvara) Continue() {
 	atomic.StoreInt32(&v.interrupt, 0)
-	v.Step()
-}
-
-func (v *Varvara) Step() {
 	select {
 	case v.cont <- true:
 	default:
 	}
 }
 
+func (v *Varvara) Step() {
+	atomic.StoreInt32(&v.interrupt, 1)
+	select {
+	case v.cont <- true:
+	default:
+	}
+}
+
+func (v *Varvara) SetBreakpoint(addr uint16) {
+	atomic.StoreInt32(&v.breakpoint, int32(addr))
+}
+
 func (v *Varvara) Exec(g *GUI) error {
 	for {
 		for {
-			if atomic.LoadInt32(&v.interrupt) != 0 {
-				v.state(v.m)
+			if uint16(atomic.LoadInt32(&v.breakpoint)) == v.m.PC ||
+				atomic.LoadInt32(&v.interrupt) != 0 {
+				v.state(v.m, false)
 				select {
 				case <-v.halt:
 					return nil
@@ -206,6 +227,7 @@ func (v *Varvara) Exec(g *GUI) error {
 			if err := v.m.Exec(); err == uxn.ErrBRK {
 				break
 			} else if err != nil {
+				v.state(v.m, true)
 				if h, ok := err.(uxn.HaltError); ok {
 					if h.HaltCode == uxn.Halt {
 						return nil
@@ -218,6 +240,8 @@ func (v *Varvara) Exec(g *GUI) error {
 				return err
 			}
 		}
+		v.state(nil, false)
+
 		var vector uint16
 		for vector == 0 {
 			select {

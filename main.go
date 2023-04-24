@@ -56,7 +56,7 @@ func main() {
 		cpuProfile = f
 	}
 
-	r := varvara.NewRunner(*guiFlag, false, func(*uxn.Machine) {})
+	r := varvara.NewRunner(*guiFlag, false, func(*uxn.Machine, bool) {})
 	code := r.Run(rom)
 
 	if f := cpuProfile; f != nil {

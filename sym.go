@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 
 	"github.com/nf/nux/uxn"
 )
@@ -90,4 +91,54 @@ func addrForOp(m *uxn.Machine) (uint16, bool) {
 		}
 	}
 	return 0, false
+}
+
+func (syms symbols) stateMsg(m *uxn.Machine) string {
+	if m == nil {
+		return ""
+	}
+	var (
+		op    = uxn.Op(m.Mem[m.PC])
+		pcSym string
+		sym   string
+	)
+	if s := syms.forAddr(m.PC); len(s) > 0 {
+		pcSym = s[0].String() + " -> "
+	}
+	if addr, ok := addrForOp(m); ok {
+		switch s := syms.forAddr(addr); len(s) {
+		case 0:
+			// None.
+		case 1:
+			sym = s[0].String()
+		case 2:
+			switch op.Base() {
+			case uxn.DEO, uxn.DEI:
+				sym = s[0].String()
+			default:
+				sym = s[1].String()
+			}
+		default:
+			for i, s := range s {
+				if i != 0 {
+					sym += " "
+				}
+				sym += s.String()
+			}
+		}
+	}
+	return fmt.Sprintf("%.4x %- 6s %s%s\nws: %v\nrs: %v\n",
+		m.PC, op, pcSym, sym, m.Work, m.Ret)
+}
+
+func (syms symbols) resolve(s string) uint16 {
+	if i, err := strconv.ParseUint(s, 16, 16); err == nil {
+		return uint16(i)
+	}
+	for _, sym := range syms {
+		if s == sym.label {
+			return sym.addr
+		}
+	}
+	return 0
 }

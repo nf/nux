@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,7 +48,7 @@ func devMode(gui bool, talFile string) error {
 		}
 		log.SetOutput(os.Stderr)
 		log.SetPrefix("nux: ")
-		runner.Debug("exit")
+		runner.Debug("exit", 0)
 	}()
 
 	romCh := make(chan []byte)
@@ -114,35 +115,42 @@ func newDebugView() *debugView {
 	var (
 		logView = tview.NewTextView().
 			SetMaxLines(1000)
-		stateView  = tview.NewTextView()
-		inputField = tview.NewInputField()
-		flex       = tview.NewFlex().
-				SetDirection(tview.FlexRow).
-				AddItem(logView, 0, 1, false).
-				AddItem(stateView, 3, 1, false).
-				AddItem(inputField, 1, 1, true)
+		state = tview.NewTextView()
+		input = tview.NewInputField()
+		flex  = tview.NewFlex().
+			SetDirection(tview.FlexRow).
+			AddItem(logView, 0, 1, false).
+			AddItem(state, 3, 1, false).
+			AddItem(input, 1, 1, true)
 		app = tview.NewApplication().SetRoot(flex, true)
 	)
-	stateView.
-		SetTextColor(tcell.ColorBlack).
-		SetBackgroundColor(tcell.ColorGrey)
 	logView.SetChangedFunc(func() { app.Draw() })
 
 	d := &debugView{
 		app:   app,
-		state: stateView,
+		state: state,
 		log:   logView,
 	}
-	inputField.SetDoneFunc(func(key tcell.Key) {
+	input.SetDoneFunc(func(key tcell.Key) {
 		if key != tcell.KeyEnter {
 			return
 		}
-		cmd := inputField.GetText()
-		inputField.SetText("")
+		cmd := input.GetText()
+		input.SetText("")
 		if cmd == "exit" {
 			app.Stop()
+		} else if bp, ok := strings.CutPrefix(cmd, "bp "); ok {
+			if addr := d.symbols().resolve(bp); addr == 0 {
+				log.Printf("invalid breakpoint %q", bp)
+			} else {
+				d.r.Debug("bp", addr)
+				log.Printf("set breakpoint %.4x", addr)
+			}
 		} else {
-			d.r.Debug(cmd)
+			d.r.Debug(cmd, 0)
+			if cmd == "bp" {
+				log.Print("cleared breakpoint")
+			}
 		}
 	})
 	return d
@@ -150,45 +158,31 @@ func newDebugView() *debugView {
 
 func (v *debugView) Run() error { return v.app.Run() }
 
-func (v *debugView) StateFunc(m *uxn.Machine) {
-	v.mu.Lock()
-	syms := v.syms
-	v.mu.Unlock()
-	var (
-		op    = uxn.Op(m.Mem[m.PC])
-		pcSym string
-		sym   string
-	)
-	if s := syms.forAddr(m.PC); len(s) > 0 {
-		pcSym = s[0].String() + " -> "
+func (v *debugView) StateFunc(m *uxn.Machine, halt bool) {
+	var msg string
+	if m != nil {
+		msg = v.symbols().stateMsg(m)
+		log.Print(msg)
 	}
-	if addr, ok := addrForOp(m); ok {
-		switch s := syms.forAddr(addr); len(s) {
-		case 0:
-			// None.
-		case 1:
-			sym = s[0].String()
-		case 2:
-			switch op.Base() {
-			case uxn.DEO, uxn.DEI:
-				sym = s[0].String()
-			default:
-				sym = s[1].String()
-			}
-		default:
-			for i, s := range s {
-				if i != 0 {
-					sym += " "
-				}
-				sym += s.String()
-			}
-		}
-	}
-	msg := fmt.Sprintf("%.4x %- 6s %s%s\nws: %v\nrs: %v\n", m.PC, op, pcSym, sym, m.Work, m.Ret)
-	log.Print(msg)
 	v.app.QueueUpdateDraw(func() {
+		if msg == "" {
+			v.state.SetTextColor(tcell.ColorLightGrey)
+			v.state.SetBackgroundColor(tcell.ColorBlack)
+		} else if halt {
+			v.state.SetTextColor(tcell.ColorWhite)
+			v.state.SetBackgroundColor(tcell.ColorDarkRed)
+		} else {
+			v.state.SetTextColor(tcell.ColorBlack)
+			v.state.SetBackgroundColor(tcell.ColorLightGrey)
+		}
 		v.state.SetText(msg)
 	})
+}
+
+func (v *debugView) symbols() symbols {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.syms
 }
 
 func (v *debugView) setSymbols(s symbols) {
