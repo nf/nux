@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -57,10 +58,18 @@ func devMode(gui bool, talFile string) error {
 			select {
 			case <-run:
 				log.Printf("dev: build %s", filepath.Base(talFile))
-				if rom, err := devBuild(debug.log, talFile, romFile); err != nil {
+				rom, err := devBuild(debug.log, talFile, romFile)
+				if err != nil {
 					log.Printf("dev: %v", err)
 					break
-				} else if !started {
+				}
+				syms, err := parseSymbols(romFile + ".sym")
+				if err != nil {
+					log.Printf("dev: reading symbols: %v", err)
+					break
+				}
+				debug.setSymbols(syms)
+				if !started {
 					log.Printf("dev: start")
 					romCh <- rom
 					started = true
@@ -96,6 +105,9 @@ type debugView struct {
 	app   *tview.Application
 	state *tview.TextView
 	log   io.Writer
+
+	mu   sync.Mutex
+	syms symbols
 }
 
 func newDebugView() *debugView {
@@ -107,10 +119,13 @@ func newDebugView() *debugView {
 		flex       = tview.NewFlex().
 				SetDirection(tview.FlexRow).
 				AddItem(logView, 0, 1, false).
-				AddItem(stateView, 2, 1, false).
+				AddItem(stateView, 3, 1, false).
 				AddItem(inputField, 1, 1, true)
 		app = tview.NewApplication().SetRoot(flex, true)
 	)
+	stateView.
+		SetTextColor(tcell.ColorBlack).
+		SetBackgroundColor(tcell.ColorGrey)
 	logView.SetChangedFunc(func() { app.Draw() })
 
 	d := &debugView{
@@ -136,9 +151,48 @@ func newDebugView() *debugView {
 func (v *debugView) Run() error { return v.app.Run() }
 
 func (v *debugView) StateFunc(m *uxn.Machine) {
-	op := uxn.Op(m.Mem[m.PC])
-	msg := fmt.Sprintf("%- 6s %v\n%.4x   %v\n", op, m.Work, m.PC, m.Ret)
+	v.mu.Lock()
+	syms := v.syms
+	v.mu.Unlock()
+	var (
+		op    = uxn.Op(m.Mem[m.PC])
+		pcSym string
+		sym   string
+	)
+	if s := syms.forAddr(m.PC); len(s) > 0 {
+		pcSym = s[0].String() + " -> "
+	}
+	if addr, ok := addrForOp(m); ok {
+		switch s := syms.forAddr(addr); len(s) {
+		case 0:
+			// None.
+		case 1:
+			sym = s[0].String()
+		case 2:
+			switch op.Base() {
+			case uxn.DEO, uxn.DEI:
+				sym = s[0].String()
+			default:
+				sym = s[1].String()
+			}
+		default:
+			for i, s := range s {
+				if i != 0 {
+					sym += " "
+				}
+				sym += s.String()
+			}
+		}
+	}
+	msg := fmt.Sprintf("%.4x %- 6s %s%s\nws: %v\nrs: %v\n", m.PC, op, pcSym, sym, m.Work, m.Ret)
+	log.Print(msg)
 	v.app.QueueUpdateDraw(func() {
 		v.state.SetText(msg)
 	})
+}
+
+func (v *debugView) setSymbols(s symbols) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.syms = s
 }

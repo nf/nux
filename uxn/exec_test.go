@@ -186,7 +186,7 @@ func TestExec(t *testing.T) {
 			error(HaltError{HaltCode: Overflow, Op: DUP2, Addr: 0x100}),
 	} {
 		t.Run(fmt.Sprintf("%s_%d", Op(c.m.Mem[0x100]), i), func(t *testing.T) {
-			if err := c.m.exec(Nopf); err != c.err {
+			if err := c.m.Exec(); err != c.err {
 				t.Fatalf("got error %v, want %v", err, c.err)
 			}
 			if g, w := c.m.Work, c.w.Work; !stackEq(g, w) {

@@ -49,7 +49,7 @@ func (m *Machine) Exec() (err error) {
 					HaltCode: code,
 				}
 				m.Work.Ptr = 0
-				st := m.Work.wrap()
+				st := m.Work.Wrap()
 				st.PushShort(opPC)
 				st.Push(byte(op))
 				st.Push(byte(code))
@@ -67,21 +67,21 @@ func (m *Machine) Exec() (err error) {
 		return ErrBRK
 	case JCI, JMI, JSI:
 		m.PC += 2
-		if op == JCI && m.Work.wrap().Pop() == 0 {
+		if op == JCI && m.Work.Wrap().Pop() == 0 {
 			return nil
 		}
 		if op == JSI {
-			m.Ret.wrap().PushShort(m.PC)
+			m.Ret.Wrap().PushShort(m.PC)
 		}
 		m.PC += uint16(m.Mem[m.PC-2])<<8 + uint16(m.Mem[m.PC-1])
 		return nil
 	}
 
-	var st *stackWrapper
+	var st *StackWrapper
 	if op.Return() {
-		st = m.Ret.mutate(op.Keep())
+		st = m.Ret.Mutate(op.Keep())
 	} else {
-		st = m.Work.mutate(op.Keep())
+		st = m.Work.Mutate(op.Keep())
 	}
 
 	switch op.Base() {
@@ -100,7 +100,7 @@ func (m *Machine) Exec() (err error) {
 			m.PC += st.PopOffset()
 		}
 		if op.Base() == JSR {
-			m.Ret.wrap().PushShort(pc)
+			m.Ret.Wrap().PushShort(pc)
 		}
 	case JCN:
 		var addr uint16
@@ -113,11 +113,11 @@ func (m *Machine) Exec() (err error) {
 			m.PC = addr
 		}
 	case STH:
-		var to *stackWrapper
+		var to *StackWrapper
 		if op.Return() {
-			to = m.Work.wrap()
+			to = m.Work.Wrap()
 		} else {
-			to = m.Ret.wrap()
+			to = m.Ret.Wrap()
 		}
 		if op.Short() {
 			to.PushShort(st.PopShort())
