@@ -102,91 +102,186 @@ func devBuild(out io.Writer, talFile, romFile string) ([]byte, error) {
 }
 
 type debugView struct {
-	r     *varvara.Runner
-	app   *tview.Application
-	state *tview.TextView
-	log   io.Writer
+	r *varvara.Runner
 
-	mu   sync.Mutex
-	syms symbols
+	log   *tview.TextView
+	watch *tview.TextView
+	state *tview.TextView
+	input *tview.InputField
+	cols  *tview.Flex
+	rows  *tview.Flex
+	app   *tview.Application
+
+	dbg, brk *symbol
+
+	mu      sync.Mutex
+	syms    *symbols
+	watches []watch
+}
+
+type watch struct {
+	symbol
+	short bool
 }
 
 func newDebugView() *debugView {
-	var (
-		logView = tview.NewTextView().
-			SetMaxLines(1000)
-		state = tview.NewTextView()
-		input = tview.NewInputField()
-		flex  = tview.NewFlex().
-			SetDirection(tview.FlexRow).
-			AddItem(logView, 0, 1, false).
-			AddItem(state, 3, 1, false).
-			AddItem(input, 1, 1, true)
-		app = tview.NewApplication().SetRoot(flex, true)
-	)
-	logView.SetChangedFunc(func() { app.Draw() })
-
 	d := &debugView{
-		app:   app,
-		state: state,
-		log:   logView,
+		log: tview.NewTextView().
+			SetMaxLines(1000),
+		watch: tview.NewTextView().
+			SetWrap(false).
+			SetTextAlign(tview.AlignRight),
+		state: tview.NewTextView().
+			SetWrap(false),
+		input: tview.NewInputField(),
+		cols:  tview.NewFlex(),
+		rows: tview.NewFlex().
+			SetDirection(tview.FlexRow),
+		app: tview.NewApplication(),
 	}
-	input.SetDoneFunc(func(key tcell.Key) {
+	d.log.SetChangedFunc(func() { d.app.Draw() })
+	d.watch.SetBackgroundColor(tcell.ColorDarkBlue)
+	d.state.SetBackgroundColor(tcell.ColorDarkGrey)
+	d.cols.
+		AddItem(d.watch, 0, 1, false).
+		AddItem(d.log, 0, 2, false)
+	d.rows.
+		AddItem(d.cols, 0, 1, false).
+		AddItem(d.state, 3, 0, false).
+		AddItem(d.input, 1, 0, true)
+	d.app.SetRoot(d.rows, true)
+
+	d.input.SetAutocompleteFunc(func(t string) (entries []string) {
+		if cmd, arg, ok := strings.Cut(t, " "); ok {
+			switch cmd {
+			case "b", "break", "d", "debug", "w", "w2", "watch", "watch2":
+				for _, s := range d.symbols().withLabelPrefix(arg) {
+					entries = append(entries, cmd+" "+s.label)
+				}
+			}
+		}
+		return
+	})
+	d.input.SetAutocompletedFunc(func(t string, index, src int) bool {
+		if src != tview.AutocompletedNavigate {
+			d.input.SetText(t)
+		}
+		return src == tview.AutocompletedEnter || src == tview.AutocompletedClick
+	})
+	d.input.SetDoneFunc(func(key tcell.Key) {
 		if key != tcell.KeyEnter {
 			return
 		}
-		cmd := input.GetText()
-		input.SetText("")
+		cmd := d.input.GetText()
+		if cmd == "" {
+			return
+		}
+		d.input.SetText("")
 		if cmd == "exit" {
-			app.Stop()
-		} else if bp, ok := strings.CutPrefix(cmd, "bp "); ok {
-			if addr := d.symbols().resolve(bp); addr == 0 {
-				log.Printf("invalid breakpoint %q", bp)
-			} else {
-				d.r.Debug("bp", addr)
-				log.Printf("set breakpoint %.4x", addr)
+			d.app.Stop()
+			return
+		}
+		if cmd, arg, ok := strings.Cut(cmd, " "); ok {
+			switch cmd {
+			case "b", "break", "d", "debug":
+				s, ok := d.symbols().resolve(arg)
+				if !ok {
+					log.Printf("invalid addr %q", arg)
+					return
+				}
+				d.r.Debug(cmd, s.addr)
+				switch cmd[0] {
+				case 'b':
+					d.brk = &s
+					log.Printf("set break %.4x", s.addr)
+				case 'd':
+					d.dbg = &s
+					log.Printf("set debug %.4x", s.addr)
+				}
+				return
+			case "w", "w2", "watch", "watch2":
+				s, ok := d.symbols().resolve(arg)
+				if !ok {
+					log.Printf("invalid address %q", arg)
+					return
+				}
+				d.mu.Lock()
+				d.watches = append(d.watches,
+					watch{symbol: s, short: strings.HasSuffix(cmd, "2")})
+				d.mu.Unlock()
+				log.Printf("watching %.4x", s.addr)
+				return
 			}
-		} else {
-			d.r.Debug(cmd, 0)
-			if cmd == "bp" {
-				log.Print("cleared breakpoint")
-			}
+		}
+		d.r.Debug(cmd, 0)
+		switch cmd[0] {
+		case 'b':
+			d.brk = nil
+			log.Print("cleared break")
+		case 'd':
+			d.dbg = nil
+			log.Print("cleared debug")
 		}
 	})
 	return d
 }
 
-func (v *debugView) Run() error { return v.app.Run() }
+func (d *debugView) Run() error { return d.app.Run() }
 
-func (v *debugView) StateFunc(m *uxn.Machine, halt bool) {
+func (d *debugView) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 	var msg string
-	if m != nil {
-		msg = v.symbols().stateMsg(m)
-		log.Print(msg)
+	if k != varvara.ClearState && k != varvara.UpdateState {
+		msg = d.symbols().stateMsg(m, k)
 	}
-	v.app.QueueUpdateDraw(func() {
-		if msg == "" {
-			v.state.SetTextColor(tcell.ColorLightGrey)
-			v.state.SetBackgroundColor(tcell.ColorBlack)
-		} else if halt {
-			v.state.SetTextColor(tcell.ColorWhite)
-			v.state.SetBackgroundColor(tcell.ColorDarkRed)
-		} else {
-			v.state.SetTextColor(tcell.ColorBlack)
-			v.state.SetBackgroundColor(tcell.ColorLightGrey)
+	var b strings.Builder
+	if s := d.brk; s != nil {
+		fmt.Fprintf(&b, "%s [%.4x] brk!\n", s.label, s.addr)
+	}
+	if s := d.dbg; s != nil {
+		fmt.Fprintf(&b, "%s [%.4x] dbg?\n", s.label, s.addr)
+	}
+	for _, w := range d.watches {
+		if b.Len() > 0 {
+			b.WriteByte('\n')
 		}
-		v.state.SetText(msg)
+		fmt.Fprintf(&b, "%s [%.4x] ", w.label, w.addr)
+		if w.short {
+			fmt.Fprintf(&b, "%.2x%.2x", m.Mem[w.addr], m.Mem[w.addr+1])
+		} else {
+			fmt.Fprintf(&b, "  %.2x", m.Mem[w.addr])
+		}
+	}
+	watch := b.String()
+	d.app.QueueUpdateDraw(func() {
+		switch k {
+		case varvara.DebugState, varvara.ClearState:
+			d.state.SetTextColor(tcell.ColorBlack)
+			d.state.SetBackgroundColor(tcell.ColorDarkGrey)
+		case varvara.BreakState:
+			d.state.SetTextColor(tcell.ColorYellow)
+			d.state.SetBackgroundColor(tcell.ColorDarkBlue)
+		case varvara.PauseState:
+			d.state.SetTextColor(tcell.ColorWhite)
+			d.state.SetBackgroundColor(tcell.ColorDarkBlue)
+		case varvara.HaltState:
+			d.state.SetTextColor(tcell.ColorWhite)
+			d.state.SetBackgroundColor(tcell.ColorDarkRed)
+		}
+		if k != varvara.UpdateState {
+			d.state.SetText(msg)
+		}
+		d.watch.SetText(watch)
 	})
 }
 
-func (v *debugView) symbols() symbols {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	return v.syms
+func (d *debugView) symbols() *symbols {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.syms
 }
 
-func (v *debugView) setSymbols(s symbols) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.syms = s
+func (d *debugView) setSymbols(s *symbols) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.syms = s
 }

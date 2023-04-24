@@ -6,17 +6,36 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/nf/nux/uxn"
+	"github.com/nf/nux/varvara"
 )
 
-type symbols []symbol
+type symbols struct {
+	byAddr  []symbol
+	byLabel []symbol
+}
 
-func (s symbols) forAddr(addr uint16) (ss []symbol) {
-	i := sort.Search(len(s), func(i int) bool { return s[i].addr >= addr })
-	for ; i < len(s); i++ {
-		if s[i].addr == addr {
-			ss = append(ss, s[i])
+func (s *symbols) forAddr(addr uint16) (ss []symbol) {
+	i := sort.Search(len(s.byAddr), func(i int) bool {
+		return s.byAddr[i].addr >= addr
+	})
+	for ; i < len(s.byAddr); i++ {
+		if s.byAddr[i].addr == addr {
+			ss = append(ss, s.byAddr[i])
+		}
+	}
+	return ss
+}
+
+func (s *symbols) withLabelPrefix(p string) (ss []symbol) {
+	i := sort.Search(len(s.byLabel), func(i int) bool {
+		return s.byLabel[i].label >= p
+	})
+	for ; i < len(s.byLabel); i++ {
+		if strings.HasPrefix(s.byLabel[i].label, p) {
+			ss = append(ss, s.byLabel[i])
 		}
 	}
 	return ss
@@ -29,12 +48,12 @@ type symbol struct {
 
 func (s symbol) String() string { return fmt.Sprintf("%s (%.4x)", s.label, s.addr) }
 
-func parseSymbols(symFile string) (symbols, error) {
+func parseSymbols(symFile string) (*symbols, error) {
 	b, err := os.ReadFile(symFile)
 	if err != nil {
 		return nil, err
 	}
-	var ss symbols
+	var ss []symbol
 	for len(b) > 0 {
 		if len(b) < 3 {
 			return nil, fmt.Errorf("invalid symbol at end of file %q", b)
@@ -49,10 +68,16 @@ func parseSymbols(symFile string) (symbols, error) {
 		b = b[i+1:]
 		ss = append(ss, s)
 	}
+	var syms symbols
 	sort.SliceStable(ss, func(i, j int) bool {
 		return ss[i].addr < ss[j].addr
 	})
-	return ss, nil
+	syms.byAddr = append([]symbol(nil), ss...)
+	sort.SliceStable(ss, func(i, j int) bool {
+		return ss[i].label < ss[j].label
+	})
+	syms.byLabel = append([]symbol(nil), ss...)
+	return &syms, nil
 }
 
 func addrForOp(m *uxn.Machine) (uint16, bool) {
@@ -93,7 +118,7 @@ func addrForOp(m *uxn.Machine) (uint16, bool) {
 	return 0, false
 }
 
-func (syms symbols) stateMsg(m *uxn.Machine) string {
+func (syms symbols) stateMsg(m *uxn.Machine, k varvara.StateKind) string {
 	if m == nil {
 		return ""
 	}
@@ -127,18 +152,29 @@ func (syms symbols) stateMsg(m *uxn.Machine) string {
 			}
 		}
 	}
-	return fmt.Sprintf("%.4x %- 6s %s%s\nws: %v\nrs: %v\n",
-		m.PC, op, pcSym, sym, m.Work, m.Ret)
+	kind := "       "
+	switch k {
+	case varvara.BreakState:
+		kind = "[break]"
+	case varvara.DebugState:
+		kind = "[debug]"
+	case varvara.PauseState:
+		kind = "[pause]"
+	case varvara.HaltState:
+		kind = "[HALT!]"
+	}
+	return fmt.Sprintf("%.4x %- 6s %s %s%s\nws: %v\nrs: %v\n",
+		m.PC, op, kind, pcSym, sym, m.Work, m.Ret)
 }
 
-func (syms symbols) resolve(s string) uint16 {
-	if i, err := strconv.ParseUint(s, 16, 16); err == nil {
-		return uint16(i)
+func (sym *symbols) resolve(t string) (symbol, bool) {
+	if i, err := strconv.ParseUint(t, 16, 16); err == nil {
+		return symbol{addr: uint16(i)}, true
 	}
-	for _, sym := range syms {
-		if s == sym.label {
-			return sym.addr
+	for _, s := range sym.withLabelPrefix(t) {
+		if s.label == t {
+			return s, true
 		}
 	}
-	return 0
+	return symbol{}, false
 }

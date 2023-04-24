@@ -46,7 +46,7 @@ func (s *System) Out(p, b byte) {
 		}
 	case 0xe:
 		if s.state != nil {
-			s.state(s.m, false)
+			s.state(s.m, DebugState)
 		} else {
 			log.Printf("%x\t%v\t%v\n", s.m.PC, s.m.Work, s.m.Ret)
 		}
