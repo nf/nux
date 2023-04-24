@@ -7,9 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/nf/nux/uxn"
-	"github.com/nf/nux/varvara"
 )
 
 type symbols struct {
@@ -78,55 +75,6 @@ func parseSymbols(symFile string) (*symbols, error) {
 	})
 	syms.byLabel = append([]symbol(nil), ss...)
 	return &syms, nil
-}
-
-func (syms symbols) stateMsg(m *uxn.Machine, k varvara.StateKind) string {
-	if m == nil {
-		return ""
-	}
-	var (
-		op    = uxn.Op(m.Mem[m.PC])
-		pcSym string
-		sym   string
-	)
-	if s := syms.forAddr(m.PC); len(s) > 0 {
-		pcSym = s[0].String() + " -> "
-	}
-	if addr, ok := m.OpAddr(m.PC); ok {
-		switch s := syms.forAddr(addr); len(s) {
-		case 0:
-			// None.
-		case 1:
-			sym = s[0].String()
-		case 2:
-			switch op.Base() {
-			case uxn.DEO, uxn.DEI:
-				sym = s[0].String()
-			default:
-				sym = s[1].String()
-			}
-		default:
-			for i, s := range s {
-				if i != 0 {
-					sym += " "
-				}
-				sym += s.String()
-			}
-		}
-	}
-	kind := "       "
-	switch k {
-	case varvara.BreakState:
-		kind = "[break]"
-	case varvara.DebugState:
-		kind = "[debug]"
-	case varvara.PauseState:
-		kind = "[pause]"
-	case varvara.HaltState:
-		kind = "[HALT!]"
-	}
-	return fmt.Sprintf("%.4x %- 6s %s %s%s\nws: %v\nrs: %v\n",
-		m.PC, op, kind, pcSym, sym, m.Work, m.Ret)
 }
 
 func (sym *symbols) resolve(t string) (symbol, bool) {

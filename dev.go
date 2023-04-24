@@ -124,6 +124,18 @@ type watch struct {
 	short bool
 }
 
+func (d *debugView) symbols() *symbols {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.syms
+}
+
+func (d *debugView) setSymbols(s *symbols) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.syms = s
+}
+
 func newDebugView() *debugView {
 	d := &debugView{
 		log: tview.NewTextView().
@@ -229,10 +241,84 @@ func newDebugView() *debugView {
 func (d *debugView) Run() error { return d.app.Run() }
 
 func (d *debugView) StateFunc(m *uxn.Machine, k varvara.StateKind) {
-	var msg string
-	if k != varvara.ClearState && k != varvara.UpdateState {
-		msg = d.symbols().stateMsg(m, k)
+	var (
+		watch = d.watchContent(m)
+		state string
+	)
+	if k != varvara.ClearState && k != varvara.QuietState {
+		state = stateMsg(d.symbols(), m, k)
 	}
+	d.app.QueueUpdateDraw(func() {
+		switch k {
+		case varvara.DebugState, varvara.ClearState:
+			d.state.SetTextColor(tcell.ColorBlack)
+			d.state.SetBackgroundColor(tcell.ColorDarkGrey)
+		case varvara.BreakState:
+			d.state.SetTextColor(tcell.ColorYellow)
+			d.state.SetBackgroundColor(tcell.ColorDarkBlue)
+		case varvara.PauseState:
+			d.state.SetTextColor(tcell.ColorWhite)
+			d.state.SetBackgroundColor(tcell.ColorDarkBlue)
+		case varvara.HaltState:
+			d.state.SetTextColor(tcell.ColorWhite)
+			d.state.SetBackgroundColor(tcell.ColorDarkRed)
+		}
+		d.watch.SetText(watch)
+		if k != varvara.QuietState {
+			d.state.SetText(state)
+		}
+	})
+}
+
+func stateMsg(syms symbols, m *uxn.Machine, k varvara.StateKind) string {
+	var (
+		op    = uxn.Op(m.Mem[m.PC])
+		pcSym string
+		sym   string
+	)
+	if s := syms.forAddr(m.PC); len(s) > 0 {
+		pcSym = s[0].String() + " -> "
+	}
+	if addr, ok := m.OpAddr(m.PC); ok {
+		switch s := syms.forAddr(addr); len(s) {
+		case 0:
+			// None.
+		case 1:
+			sym = s[0].String()
+		case 2:
+			switch op.Base() {
+			case uxn.DEO, uxn.DEI:
+				sym = s[0].String()
+			default:
+				sym = s[1].String()
+			}
+		default:
+			for i, s := range s {
+				if i != 0 {
+					sym += " "
+				}
+				sym += s.String()
+			}
+		}
+	}
+	kind := "       "
+	switch k {
+	case varvara.BreakState:
+		kind = "[break]"
+	case varvara.DebugState:
+		kind = "[debug]"
+	case varvara.PauseState:
+		kind = "[pause]"
+	case varvara.HaltState:
+		kind = "[HALT!]"
+	}
+	return fmt.Sprintf("%.4x %- 6s %s %s%s\nws: %v\nrs: %v\n",
+		m.PC, op, kind, pcSym, sym, m.Work, m.Ret)
+}
+
+func (d *debugView) watchContent(m *uxn.Machine) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	var b strings.Builder
 	if s := d.brk; s != nil {
 		fmt.Fprintf(&b, "%s [%.4x] brk!\n", s.label, s.addr)
@@ -251,37 +337,5 @@ func (d *debugView) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 			fmt.Fprintf(&b, "  %.2x", m.Mem[w.addr])
 		}
 	}
-	watch := b.String()
-	d.app.QueueUpdateDraw(func() {
-		switch k {
-		case varvara.DebugState, varvara.ClearState:
-			d.state.SetTextColor(tcell.ColorBlack)
-			d.state.SetBackgroundColor(tcell.ColorDarkGrey)
-		case varvara.BreakState:
-			d.state.SetTextColor(tcell.ColorYellow)
-			d.state.SetBackgroundColor(tcell.ColorDarkBlue)
-		case varvara.PauseState:
-			d.state.SetTextColor(tcell.ColorWhite)
-			d.state.SetBackgroundColor(tcell.ColorDarkBlue)
-		case varvara.HaltState:
-			d.state.SetTextColor(tcell.ColorWhite)
-			d.state.SetBackgroundColor(tcell.ColorDarkRed)
-		}
-		if k != varvara.UpdateState {
-			d.state.SetText(msg)
-		}
-		d.watch.SetText(watch)
-	})
-}
-
-func (d *debugView) symbols() *symbols {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.syms
-}
-
-func (d *debugView) setSymbols(s *symbols) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.syms = s
+	return b.String()
 }

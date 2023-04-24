@@ -28,7 +28,7 @@ const (
 	PauseState
 	BreakState
 	DebugState
-	UpdateState
+	QuietState
 )
 
 func NewRunner(enableGUI, devMode bool, state StateFunc) *Runner {
@@ -273,7 +273,7 @@ func (v *Varvara) Exec(g *GUI) error {
 			}
 		}
 		if update {
-			v.state(v.m, UpdateState)
+			v.state(v.m, QuietState)
 		} else if clear {
 			v.state(v.m, ClearState)
 		}
