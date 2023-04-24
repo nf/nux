@@ -11,20 +11,39 @@ type Stack struct {
 	Ptr   byte
 }
 
-func (s *Stack) Wrap() *StackWrapper { return s.Mutate(false) }
-
-func (s *Stack) Mutate(keep bool) *StackWrapper {
-	return &StackWrapper{Stack: s, keep: keep}
+func (s *Stack) Peek() (byte, bool) {
+	if s.Ptr == 0 {
+		return 0, false
+	}
+	return s.Bytes[s.Ptr-1], true
 }
 
-type StackWrapper struct {
+func (s *Stack) PeekOffset() (uint16, bool) {
+	b, ok := s.Peek()
+	return uint16(int8(b)), ok
+}
+
+func (s *Stack) PeekShort() (uint16, bool) {
+	if s.Ptr < 2 {
+		return 0, false
+	}
+	return uint16(s.Bytes[s.Ptr-2])<<8 + uint16(s.Bytes[s.Ptr-1]), true
+}
+
+func (s *Stack) wrap() *stackWrapper { return s.keep(false) }
+
+func (s *Stack) keep(keep bool) *stackWrapper {
+	return &stackWrapper{Stack: s, keep: keep}
+}
+
+type stackWrapper struct {
 	*Stack
 	keep   bool
 	popped byte
 	pushed bool
 }
 
-func (s *StackWrapper) Pop() byte {
+func (s *stackWrapper) Pop() byte {
 	if s.pushed {
 		panic("internal error: Pop after Push in StackWrapper")
 	}
@@ -39,7 +58,7 @@ func (s *StackWrapper) Pop() byte {
 	return s.Bytes[s.Ptr-s.popped]
 }
 
-func (s *StackWrapper) Push(v byte) {
+func (s *stackWrapper) Push(v byte) {
 	if s.Ptr == 255 {
 		panic(Overflow)
 	}
@@ -48,20 +67,20 @@ func (s *StackWrapper) Push(v byte) {
 	s.pushed = true
 }
 
-func (s *StackWrapper) PopShort() uint16 {
+func (s *stackWrapper) PopShort() uint16 {
 	return uint16(s.Pop()) + uint16(s.Pop())<<8
 }
 
-func (s *StackWrapper) PushShort(v uint16) {
+func (s *stackWrapper) PushShort(v uint16) {
 	s.Push(byte(v >> 8))
 	s.Push(byte(v))
 }
 
-func (s *StackWrapper) PopOffset() uint16 {
+func (s *stackWrapper) PopOffset() uint16 {
 	return uint16(int8(s.Pop()))
 }
 
-func (s *StackWrapper) PushBool(b bool) {
+func (s *stackWrapper) PushBool(b bool) {
 	if b {
 		s.Push(1)
 	} else {
@@ -70,7 +89,7 @@ func (s *StackWrapper) PushBool(b bool) {
 }
 
 type shortPushPopper struct {
-	*StackWrapper
+	*stackWrapper
 }
 
 func (s shortPushPopper) Pop() uint16   { return s.PopShort() }
@@ -83,7 +102,7 @@ type pushPopper[T byte | uint16] interface {
 }
 
 var (
-	_ pushPopper[byte]   = &StackWrapper{}
+	_ pushPopper[byte]   = &stackWrapper{}
 	_ pushPopper[uint16] = shortPushPopper{}
 )
 

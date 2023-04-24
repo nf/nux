@@ -80,44 +80,6 @@ func parseSymbols(symFile string) (*symbols, error) {
 	return &syms, nil
 }
 
-func addrForOp(m *uxn.Machine) (uint16, bool) {
-	switch op := uxn.Op(m.Mem[m.PC]); op.Base() {
-	case uxn.JCI, uxn.JMI, uxn.JSI:
-		return m.PC + uint16(m.Mem[m.PC+1])<<8 + uint16(m.Mem[m.PC+2]) + 3, true
-	case uxn.JMP, uxn.JCN, uxn.JSR,
-		uxn.LDR, uxn.STR,
-		uxn.LDA, uxn.STA,
-		uxn.LDZ, uxn.STZ,
-		uxn.DEI, uxn.DEO:
-
-		var st *uxn.StackWrapper
-		if op.Return() {
-			st = m.Ret.Mutate(true)
-		} else {
-			st = m.Work.Mutate(true)
-		}
-		switch op.Base() {
-		case uxn.JMP, uxn.JCN, uxn.JSR:
-			if op.Short() {
-				// addr16 abs
-				return st.PopShort(), true
-			} else {
-				// addr8 rel
-				return m.PC + st.PopOffset() + 1, true
-			}
-		case uxn.LDR, uxn.STR: // addr8 rel
-			return m.PC + st.PopOffset() + 1, true
-		case uxn.LDA, uxn.STA: // addr16 rel
-			return st.PopShort(), true
-		case uxn.LDZ, uxn.STZ: // addr8 zero
-			return uint16(st.Pop()), true
-		case uxn.DEI, uxn.DEO: // device8
-			return uint16(st.Pop()), true
-		}
-	}
-	return 0, false
-}
-
 func (syms symbols) stateMsg(m *uxn.Machine, k varvara.StateKind) string {
 	if m == nil {
 		return ""
@@ -130,7 +92,7 @@ func (syms symbols) stateMsg(m *uxn.Machine, k varvara.StateKind) string {
 	if s := syms.forAddr(m.PC); len(s) > 0 {
 		pcSym = s[0].String() + " -> "
 	}
-	if addr, ok := addrForOp(m); ok {
+	if addr, ok := m.OpAddr(m.PC); ok {
 		switch s := syms.forAddr(addr); len(s) {
 		case 0:
 			// None.

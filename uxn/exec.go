@@ -49,7 +49,7 @@ func (m *Machine) Exec() (err error) {
 					HaltCode: code,
 				}
 				m.Work.Ptr = 0
-				st := m.Work.Wrap()
+				st := m.Work.wrap()
 				st.PushShort(opPC)
 				st.Push(byte(op))
 				st.Push(byte(code))
@@ -67,21 +67,21 @@ func (m *Machine) Exec() (err error) {
 		return ErrBRK
 	case JCI, JMI, JSI:
 		m.PC += 2
-		if op == JCI && m.Work.Wrap().Pop() == 0 {
+		if op == JCI && m.Work.wrap().Pop() == 0 {
 			return nil
 		}
 		if op == JSI {
-			m.Ret.Wrap().PushShort(m.PC)
+			m.Ret.wrap().PushShort(m.PC)
 		}
 		m.PC += uint16(m.Mem[m.PC-2])<<8 + uint16(m.Mem[m.PC-1])
 		return nil
 	}
 
-	var st *StackWrapper
+	var st *stackWrapper
 	if op.Return() {
-		st = m.Ret.Mutate(op.Keep())
+		st = m.Ret.keep(op.Keep())
 	} else {
-		st = m.Work.Mutate(op.Keep())
+		st = m.Work.keep(op.Keep())
 	}
 
 	switch op.Base() {
@@ -100,7 +100,7 @@ func (m *Machine) Exec() (err error) {
 			m.PC += st.PopOffset()
 		}
 		if op.Base() == JSR {
-			m.Ret.Wrap().PushShort(pc)
+			m.Ret.wrap().PushShort(pc)
 		}
 	case JCN:
 		var addr uint16
@@ -113,11 +113,11 @@ func (m *Machine) Exec() (err error) {
 			m.PC = addr
 		}
 	case STH:
-		var to *StackWrapper
+		var to *stackWrapper
 		if op.Return() {
-			to = m.Work.Wrap()
+			to = m.Work.wrap()
 		} else {
-			to = m.Ret.Wrap()
+			to = m.Ret.wrap()
 		}
 		if op.Short() {
 			to.PushShort(st.PopShort())
@@ -251,6 +251,43 @@ func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
 	default:
 		panic(fmt.Errorf("internal error: %v not implemented", op))
 	}
+}
+
+// OpAddr returns the address associated with the operation at addr, either
+// from memory or the stack, and reports whether the operation has an
+// associated address (for example, JMP does while POP does not), and whether
+// there are enough bytes on the stack to provide an address (ie, it returns
+// false if executing the instruction would trigger a stack underflow).
+func (m *Machine) OpAddr(addr uint16) (uint16, bool) {
+	switch op := Op(m.Mem[addr]); op.Base() {
+	case JCI, JMI, JSI:
+		return m.PC + uint16(m.Mem[m.PC+1])<<8 + uint16(m.Mem[m.PC+2]) + 3, true
+	case JMP, JCN, JSR, LDR, STR, LDA, STA, LDZ, STZ, DEI, DEO:
+		var st *Stack
+		if op.Return() {
+			st = &m.Ret
+		} else {
+			st = &m.Work
+		}
+		switch op.Base() {
+		case JMP, JCN, JSR:
+			if op.Short() { // addr16 abs
+				return st.PeekShort()
+			} else { // addr8 rel
+				offs, ok := st.PeekOffset()
+				return m.PC + offs + 1, ok
+			}
+		case LDR, STR: // addr8 rel
+			offs, ok := st.PeekOffset()
+			return m.PC + offs + 1, ok
+		case LDA, STA: // addr16 abs
+			return st.PeekShort()
+		case LDZ, STZ, DEI, DEO: // addr8 zero, device8
+			addr, ok := st.Peek()
+			return uint16(addr), ok
+		}
+	}
+	return 0, false
 }
 
 // HaltError is returned by ExecVector if an overflow, underflow, or division
