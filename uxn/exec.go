@@ -253,9 +253,6 @@ func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
 	}
 }
 
-// Nopf is a logf function that does nothing.
-func Nopf(string, ...any) {}
-
 // HaltError is returned by ExecVector if an overflow, underflow, or division
 // by zero occurs.
 type HaltError struct {
