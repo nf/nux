@@ -15,6 +15,8 @@ import (
 )
 
 func devMode(gui bool, talFile string) error {
+	talFile = filepath.Clean(talFile)
+
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -51,7 +53,7 @@ func devMode(gui bool, talFile string) error {
 					v = v.Reset(rom)
 				}
 			case ev := <-watcher.Event:
-				if ev.Name == filepath.Base(talFile) && !ev.IsAttrib() {
+				if ev.Name == talFile && !ev.IsAttrib() {
 					run = time.After(100 * time.Millisecond)
 				}
 			case err := <-watcher.Error:
