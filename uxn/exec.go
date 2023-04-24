@@ -3,8 +3,8 @@
 package uxn
 
 import (
+	"errors"
 	"fmt"
-	"sync/atomic"
 )
 
 // Machine is an implementation of a Uxn CPU.
@@ -14,8 +14,6 @@ type Machine struct {
 	Work Stack
 	Ret  Stack
 	Dev  Device
-
-	interrupt int32
 }
 
 // Device provides access to external systems connected to the Uxn CPU.
@@ -35,19 +33,9 @@ func NewMachine(rom []byte) *Machine {
 	return m
 }
 
-func (m *Machine) Halt() { atomic.StoreInt32(&m.interrupt, 0x1) }
+var ErrBRK = errors.New("BRK")
 
-func (m *Machine) ExecVector(pc uint16, logf func(string, ...any)) (err error) {
-	m.PC = pc
-	for m.Mem[m.PC] != 0 {
-		if err := m.exec(logf); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (m *Machine) exec(logf func(string, ...any)) (err error) {
+func (m *Machine) Exec() (err error) {
 	var (
 		op   = Op(m.Mem[m.PC])
 		opPC = m.PC
@@ -71,17 +59,12 @@ func (m *Machine) exec(logf func(string, ...any)) (err error) {
 			}
 		}
 	}()
-	logf("%x\t%v\t%v\t%v\n", opPC, op, m.Work, m.Ret)
-
-	if atomic.LoadInt32(&m.interrupt) > 0 {
-		panic(Halt)
-	}
 
 	m.PC++
 
 	switch op {
 	case BRK:
-		panic("internal error: tried to exec BRK")
+		return ErrBRK
 	case JCI, JMI, JSI:
 		m.PC += 2
 		if op == JCI && m.Work.wrap().Pop() == 0 {

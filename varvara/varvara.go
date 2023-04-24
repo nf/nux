@@ -110,24 +110,31 @@ func New(rom []byte) *Varvara {
 	return v
 }
 
-func (v *Varvara) Halt() {
-	v.m.Halt()
-	close(v.halt)
-}
+func (v *Varvara) Halt() { close(v.halt) }
 
 func (v *Varvara) Exec(g *GUI) error {
 	vector := uint16(0x0100)
 	for {
-		if err := v.m.ExecVector(vector, uxn.Nopf); err != nil {
-			if h, ok := err.(uxn.HaltError); ok {
-				if h.HaltCode == uxn.Halt {
-					return nil
+		v.m.PC = vector
+		for {
+			if err := v.m.Exec(); err == uxn.ErrBRK {
+				break
+			} else if err != nil {
+				if h, ok := err.(uxn.HaltError); ok {
+					if h.HaltCode == uxn.Halt {
+						return nil
+					}
+					if vector = v.sys.Halt(); vector > 0 {
+						continue
+					}
 				}
-				if vector = v.sys.Halt(); vector > 0 {
-					continue
-				}
+				return err
 			}
-			return err
+			select {
+			case <-v.halt:
+				return nil
+			default:
+			}
 		}
 		for vector = 0; vector == 0; {
 			select {
