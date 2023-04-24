@@ -3,63 +3,113 @@ package varvara
 
 import (
 	"log"
+	"sync/atomic"
 
 	"github.com/nf/nux/uxn"
 )
 
 type Runner struct {
-	gui bool
-	dev bool
+	gui   bool
+	dev   bool
+	state StateFunc
 
-	reset     chan *Varvara
-	resetDone chan bool
+	swap     chan []byte
+	swapDone chan bool
+	debug    chan string
 }
 
-func NewRunner(enableGUI, devMode bool) *Runner {
+type StateFunc func(*uxn.Machine)
+
+func NewRunner(enableGUI, devMode bool, state StateFunc) *Runner {
 	r := &Runner{
-		gui:       enableGUI,
-		dev:       devMode,
-		reset:     make(chan *Varvara),
-		resetDone: make(chan bool),
+		gui:      enableGUI,
+		dev:      devMode,
+		state:    state,
+		swap:     make(chan []byte),
+		swapDone: make(chan bool),
+		debug:    make(chan string),
 	}
 	return r
 }
 
-func (r *Runner) Reset(v *Varvara) {
+func (r *Runner) Debug(cmd string) { r.debug <- cmd }
+
+func (r *Runner) Swap(rom []byte) {
 	if !r.dev {
 		panic("Reset called while not running in dev mode")
 	}
-	r.reset <- v
-	<-r.resetDone
+	r.swap <- rom
+	<-r.swapDone
 }
 
-func (r *Runner) Run(v *Varvara) (exitCode int) {
+func (r *Runner) Run(rom []byte) (exitCode int) {
 	var (
+		v    = New(rom, r.state)
 		g    = NewGUI(v)
 		exit = make(chan bool)
 	)
 	go func() {
 		var (
 			execErr = make(chan error)
-			running = true
+			running = false
 		)
-		go func() { execErr <- v.Exec(g) }()
+		exec := func() {
+			if running {
+				return
+			}
+			running = true
+			go func() { execErr <- v.Exec(g) }()
+			log.Printf("unx: started")
+		}
+		halt := func() {
+			if running {
+				v.Halt()
+				if err := <-execErr; err != nil {
+					log.Printf("uxn: stopped: %v", err)
+				} else {
+					log.Printf("uxn: stopped")
+				}
+				running = false
+			}
+		}
+		exec()
 		for {
 			select {
-			case newV := <-r.reset:
-				if running {
-					v.Halt()
-					<-execErr
-				}
-				v = newV
+			case rom = <-r.swap:
+				halt()
+				v = New(rom, r.state)
 				g.Swap(v)
-				go func() { execErr <- v.Exec(g) }()
-				r.resetDone <- true
+				exec()
+				r.swapDone <- true
 			case err := <-execErr:
+				running = false
 				if r.dev {
-					log.Printf("uxn: %v", err)
-					running = false
+					if err != nil {
+						log.Printf("uxn: stopped: %v", err)
+					} else {
+						log.Printf("uxn: stopped")
+					}
 				} else {
+					close(exit)
+					return
+				}
+			case op := <-r.debug:
+				switch op {
+				case "halt":
+					halt()
+				case "reset":
+					halt()
+					v = New(rom, r.state)
+					g.Swap(v)
+					exec()
+				case "p":
+					v.Pause()
+				case "s":
+					v.Step()
+				case "c":
+					v.Continue()
+				case "exit":
+					halt()
 					close(exit)
 					return
 				}
@@ -89,18 +139,26 @@ type Varvara struct {
 	fileB File
 	time  Datetime
 
-	halt chan bool
+	state StateFunc
+
+	interrupt int32
+	halted    bool
+	halt      chan bool
+	cont      chan bool
 }
 
-func New(rom []byte) *Varvara {
+func New(rom []byte, state StateFunc) *Varvara {
 	m := uxn.NewMachine(rom)
 	v := &Varvara{
-		m:    m,
-		halt: make(chan bool),
+		m:     m,
+		state: state,
+		halt:  make(chan bool),
+		cont:  make(chan bool),
 	}
 	m.Dev = v
 	v.sys.main = m.Mem[:]
 	v.sys.m = m
+	v.sys.state = state
 	v.scr.main = m.Mem[:]
 	v.scr.sys = &v.sys
 	v.scr.setWidth(0x100)
@@ -110,13 +168,41 @@ func New(rom []byte) *Varvara {
 	return v
 }
 
-func (v *Varvara) Halt() { close(v.halt) }
+func (v *Varvara) Halt() {
+	if !v.halted {
+		close(v.halt)
+		v.halted = true
+	}
+	v.Pause()
+}
+
+func (v *Varvara) Pause() {
+	atomic.StoreInt32(&v.interrupt, 1)
+}
+
+func (v *Varvara) Continue() {
+	atomic.StoreInt32(&v.interrupt, 0)
+	v.Step()
+}
+
+func (v *Varvara) Step() {
+	select {
+	case v.cont <- true:
+	default:
+	}
+}
 
 func (v *Varvara) Exec(g *GUI) error {
-	vector := uint16(0x0100)
 	for {
-		v.m.PC = vector
 		for {
+			if atomic.LoadInt32(&v.interrupt) != 0 {
+				v.state(v.m)
+				select {
+				case <-v.halt:
+					return nil
+				case <-v.cont:
+				}
+			}
 			if err := v.m.Exec(); err == uxn.ErrBRK {
 				break
 			} else if err != nil {
@@ -124,19 +210,16 @@ func (v *Varvara) Exec(g *GUI) error {
 					if h.HaltCode == uxn.Halt {
 						return nil
 					}
-					if vector = v.sys.Halt(); vector > 0 {
+					if vec := v.sys.Halt(); vec > 0 {
+						v.m.PC = vec
 						continue
 					}
 				}
 				return err
 			}
-			select {
-			case <-v.halt:
-				return nil
-			default:
-			}
 		}
-		for vector = 0; vector == 0; {
+		var vector uint16
+		for vector == 0 {
 			select {
 			case <-v.con.Ready:
 				vector = v.con.Vector()
@@ -151,6 +234,7 @@ func (v *Varvara) Exec(g *GUI) error {
 				return nil
 			}
 		}
+		v.m.PC = vector
 	}
 }
 

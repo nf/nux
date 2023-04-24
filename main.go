@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime/pprof"
 
+	"github.com/nf/nux/uxn"
 	"github.com/nf/nux/varvara"
 )
 
@@ -55,8 +56,8 @@ func main() {
 		cpuProfile = f
 	}
 
-	r := varvara.NewRunner(*guiFlag, false)
-	code := r.Run(varvara.New(rom))
+	r := varvara.NewRunner(*guiFlag, false, func(*uxn.Machine) {})
+	code := r.Run(rom)
 
 	if f := cpuProfile; f != nil {
 		pprof.StopCPUProfile()

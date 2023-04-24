@@ -7,9 +7,10 @@ import (
 )
 
 type System struct {
-	mem  deviceMem
-	main []byte
-	m    *uxn.Machine
+	mem   deviceMem
+	main  []byte
+	m     *uxn.Machine
+	state StateFunc
 }
 
 func (s *System) Halt() uint16  { return s.mem.short(0x0) }
@@ -44,8 +45,15 @@ func (s *System) Out(p, b byte) {
 			}
 		}
 	case 0xe:
-		log.Printf("%x\t%v\t%v\n", s.m.PC, s.m.Work, s.m.Ret)
+		if s.state != nil {
+			s.state(s.m)
+		} else {
+			log.Printf("%x\t%v\t%v\n", s.m.PC, s.m.Work, s.m.Ret)
+		}
 	case 0xf:
+		if s.state != nil {
+			s.state(s.m)
+		}
 		if b != 0 {
 			panic(uxn.Halt) // Stop execution.
 		}

@@ -9,8 +9,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/howeyc/fsnotify"
+	"github.com/rivo/tview"
 
+	"github.com/nf/nux/uxn"
 	"github.com/nf/nux/varvara"
 )
 
@@ -32,10 +35,21 @@ func devMode(gui bool, talFile string) error {
 	defer os.RemoveAll(tmp)
 	romFile := filepath.Join(tmp, filepath.Base(talFile)+".rom")
 
-	var (
-		r   = varvara.NewRunner(gui, true)
-		vCh = make(chan *varvara.Varvara)
-	)
+	debug := newDebugView()
+	runner := varvara.NewRunner(gui, true, debug.StateFunc)
+	debug.r = runner
+	log.SetPrefix("")
+	log.SetOutput(debug.log)
+	go func() {
+		if err := debug.Run(); err != nil {
+			log.Fatalf("debug: %v", err)
+		}
+		log.SetOutput(os.Stderr)
+		log.SetPrefix("nux: ")
+		runner.Debug("exit")
+	}()
+
+	romCh := make(chan []byte)
 	go func() {
 		started := false
 		run := time.After(1 * time.Millisecond)
@@ -43,16 +57,16 @@ func devMode(gui bool, talFile string) error {
 			select {
 			case <-run:
 				log.Printf("dev: build %s", filepath.Base(talFile))
-				if rom, err := devBuild(os.Stderr, talFile, romFile); err != nil {
+				if rom, err := devBuild(debug.log, talFile, romFile); err != nil {
 					log.Printf("dev: %v", err)
 					break
-				} else if v := varvara.New(rom); !started {
+				} else if !started {
 					log.Printf("dev: start")
-					vCh <- v
+					romCh <- rom
 					started = true
 				} else {
 					log.Printf("dev: reset")
-					r.Reset(v)
+					runner.Swap(rom)
 				}
 			case ev := <-watcher.Event:
 				if ev.Name == talFile && !ev.IsAttrib() {
@@ -63,7 +77,7 @@ func devMode(gui bool, talFile string) error {
 			}
 		}
 	}()
-	code := r.Run((<-vCh))
+	code := runner.Run((<-romCh))
 	return fmt.Errorf("dev: exit code: %d", code)
 }
 
@@ -75,4 +89,56 @@ func devBuild(out io.Writer, talFile, romFile string) ([]byte, error) {
 		return nil, fmt.Errorf("uxnasm: %v", err)
 	}
 	return os.ReadFile(romFile)
+}
+
+type debugView struct {
+	r     *varvara.Runner
+	app   *tview.Application
+	state *tview.TextView
+	log   io.Writer
+}
+
+func newDebugView() *debugView {
+	var (
+		logView = tview.NewTextView().
+			SetMaxLines(1000)
+		stateView  = tview.NewTextView()
+		inputField = tview.NewInputField()
+		flex       = tview.NewFlex().
+				SetDirection(tview.FlexRow).
+				AddItem(logView, 0, 1, false).
+				AddItem(stateView, 2, 1, false).
+				AddItem(inputField, 1, 1, true)
+		app = tview.NewApplication().SetRoot(flex, true)
+	)
+	logView.SetChangedFunc(func() { app.Draw() })
+
+	d := &debugView{
+		app:   app,
+		state: stateView,
+		log:   logView,
+	}
+	inputField.SetDoneFunc(func(key tcell.Key) {
+		if key != tcell.KeyEnter {
+			return
+		}
+		cmd := inputField.GetText()
+		inputField.SetText("")
+		if cmd == "exit" {
+			app.Stop()
+		} else {
+			d.r.Debug(cmd)
+		}
+	})
+	return d
+}
+
+func (v *debugView) Run() error { return v.app.Run() }
+
+func (v *debugView) StateFunc(m *uxn.Machine) {
+	op := uxn.Op(m.Mem[m.PC])
+	msg := fmt.Sprintf("%- 6s %v\n%.4x   %v\n", op, m.Work, m.PC, m.Ret)
+	v.app.QueueUpdateDraw(func() {
+		v.state.SetText(msg)
+	})
 }
