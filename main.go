@@ -9,7 +9,6 @@ import (
 	"os"
 	"runtime/pprof"
 
-	"github.com/nf/nux/uxn"
 	"github.com/nf/nux/varvara"
 )
 
@@ -19,7 +18,6 @@ func main() {
 
 	var (
 		cpuProfileFlag = flag.String("cpu_profile", "", "write CPU profile to `file`")
-		debugFlag      = flag.Bool("debug", false, "print debugging information")
 		guiFlag        = flag.Bool("gui", false, "enable GUI features")
 		devFlag        = flag.Bool("dev", false, "enable developer mode (live re-build and run an untxal program)")
 	)
@@ -57,12 +55,8 @@ func main() {
 		cpuProfile = f
 	}
 
-	logf := uxn.Nopf
-	if *debugFlag {
-		logf = log.Printf
-	}
-
-	code := varvara.New(rom).Run(*guiFlag, false, logf)
+	r := varvara.NewRunner(*guiFlag, false)
+	code := r.Run(varvara.New(rom))
 
 	if f := cpuProfile; f != nil {
 		pprof.StopCPUProfile()

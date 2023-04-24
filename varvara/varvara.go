@@ -7,69 +7,73 @@ import (
 	"github.com/nf/nux/uxn"
 )
 
-func (v *Varvara) Run(enableGUI, devMode bool, logf func(string, ...any)) (exitCode int) {
+type Runner struct {
+	gui bool
+	dev bool
+
+	reset     chan *Varvara
+	resetDone chan bool
+}
+
+func NewRunner(enableGUI, devMode bool) *Runner {
+	r := &Runner{
+		gui:       enableGUI,
+		dev:       devMode,
+		reset:     make(chan *Varvara),
+		resetDone: make(chan bool),
+	}
+	return r
+}
+
+func (r *Runner) Reset(v *Varvara) {
+	if !r.dev {
+		panic("Reset called while not running in dev mode")
+	}
+	r.reset <- v
+	<-r.resetDone
+}
+
+func (r *Runner) Run(v *Varvara) (exitCode int) {
 	var (
 		g    = NewGUI(v)
-		halt = make(chan bool)
+		exit = make(chan bool)
 	)
 	go func() {
-		var bl backlog
-		if devMode {
-			logf = bl.LazyPrintf
-		}
-		vector := uint16(0x100)
-		reset := func(newV *Varvara) {
-			bl.Reset()
-			v = newV
-			g.Swap(v)
-			vector = 0x100
-			log.Printf("uxn: running from 0x0100")
-		}
+		var (
+			execErr = make(chan error)
+			running = true
+		)
+		go func() { execErr <- v.Exec(g) }()
 		for {
-			if err := v.m.ExecVector(vector, logf); err != nil {
-				if h, ok := err.(uxn.HaltError); ok {
-					if h.HaltCode == uxn.Halt {
-						if !devMode {
-							close(halt)
-							return
-						}
-					} else if vector = v.sys.Halt(); vector > 0 {
-						continue
-					}
+			select {
+			case newV := <-r.reset:
+				if running {
+					v.Halt()
+					<-execErr
 				}
-				if !devMode {
-					log.Fatalf("uxn: %v", err)
-				}
-				bl.Emit()
-				log.Printf("uxn: %v", err)
-				reset(<-v.reset)
-				continue
-			}
-			for vector = 0; vector == 0; {
-				select {
-				case <-v.con.Ready:
-					vector = v.con.Vector()
-				case <-v.cntrl.Ready:
-					vector = v.cntrl.Vector()
-				case <-v.mouse.Ready:
-					vector = v.mouse.Vector()
-				case g.Update <- true:
-					<-g.UpdateDone
-					vector = v.scr.Vector()
-				case newV := <-v.reset:
-					reset(newV)
+				v = newV
+				g.Swap(v)
+				go func() { execErr <- v.Exec(g) }()
+				r.resetDone <- true
+			case err := <-execErr:
+				if r.dev {
+					log.Printf("uxn: %v", err)
+					running = false
+				} else {
+					close(exit)
+					return
 				}
 			}
 		}
 	}()
-	if enableGUI {
+	if r.gui {
 		// If the GUI is enabled then Run will drive the GUI and the
-		// screen vector until halt is closed.
-		if err := g.Run(halt); err != nil {
+		// screen vector until exit is closed.
+		if err := g.Run(exit); err != nil {
 			log.Fatalf("gui: %v", err)
 		}
 	} else {
-		<-halt
+		<-exit
 	}
 	return v.sys.ExitCode()
 }
@@ -85,24 +89,16 @@ type Varvara struct {
 	fileB File
 	time  Datetime
 
-	reset chan *Varvara
-}
-
-// Reset halts the current machine, allocates a new Varvara running the given
-// rom, and instructs the Run loop to replace its Varvara with the new one.
-// Callers should stop using v and replace it with the returned Varvara
-// instead. This function should only be used when Run is invoked with devMode.
-func (v *Varvara) Reset(rom []byte) *Varvara {
-	v.m.Halt()
-	newV := New(rom)
-	v.reset <- newV
-	return newV
+	halt chan bool
 }
 
 func New(rom []byte) *Varvara {
 	m := uxn.NewMachine(rom)
-	v := &Varvara{}
-	v.m = m
+	v := &Varvara{
+		m:    m,
+		halt: make(chan bool),
+	}
+	m.Dev = v
 	v.sys.main = m.Mem[:]
 	v.sys.m = m
 	v.scr.main = m.Mem[:]
@@ -111,9 +107,44 @@ func New(rom []byte) *Varvara {
 	v.scr.setHeight(0x100)
 	v.fileA.main = m.Mem[:]
 	v.fileB.main = m.Mem[:]
-	v.reset = make(chan *Varvara)
-	m.Dev = v
 	return v
+}
+
+func (v *Varvara) Halt() {
+	v.m.Halt()
+	close(v.halt)
+}
+
+func (v *Varvara) Exec(g *GUI) error {
+	vector := uint16(0x0100)
+	for {
+		if err := v.m.ExecVector(vector, uxn.Nopf); err != nil {
+			if h, ok := err.(uxn.HaltError); ok {
+				if h.HaltCode == uxn.Halt {
+					return nil
+				}
+				if vector = v.sys.Halt(); vector > 0 {
+					continue
+				}
+			}
+			return err
+		}
+		for vector = 0; vector == 0; {
+			select {
+			case <-v.con.Ready:
+				vector = v.con.Vector()
+			case <-v.cntrl.Ready:
+				vector = v.cntrl.Vector()
+			case <-v.mouse.Ready:
+				vector = v.mouse.Vector()
+			case g.Update <- true:
+				<-g.UpdateDone
+				vector = v.scr.Vector()
+			case <-v.halt:
+				return nil
+			}
+		}
+	}
 }
 
 func (v *Varvara) In(p byte) byte {

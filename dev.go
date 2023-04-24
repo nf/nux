@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/howeyc/fsnotify"
 
-	"github.com/nf/nux/uxn"
 	"github.com/nf/nux/varvara"
 )
 
@@ -32,43 +32,45 @@ func devMode(gui bool, talFile string) error {
 	defer os.RemoveAll(tmp)
 	romFile := filepath.Join(tmp, filepath.Base(talFile)+".rom")
 
-	vCh := make(chan *varvara.Varvara)
+	var (
+		r   = varvara.NewRunner(gui, true)
+		vCh = make(chan *varvara.Varvara)
+	)
 	go func() {
-		var (
-			v   *varvara.Varvara
-			run = time.After(1 * time.Millisecond)
-		)
+		started := false
+		run := time.After(1 * time.Millisecond)
 		for {
 			select {
 			case <-run:
 				log.Printf("dev: build %s", filepath.Base(talFile))
-				if rom, err := devBuild(talFile, romFile); err != nil {
+				if rom, err := devBuild(os.Stderr, talFile, romFile); err != nil {
 					log.Printf("dev: %v", err)
-				} else if v == nil {
+					break
+				} else if v := varvara.New(rom); !started {
 					log.Printf("dev: start")
-					v = varvara.New(rom)
 					vCh <- v
+					started = true
 				} else {
 					log.Printf("dev: reset")
-					v = v.Reset(rom)
+					r.Reset(v)
 				}
 			case ev := <-watcher.Event:
 				if ev.Name == talFile && !ev.IsAttrib() {
 					run = time.After(100 * time.Millisecond)
 				}
 			case err := <-watcher.Error:
-				log.Printf("watcher: %v", err)
+				log.Printf("dev: watcher: %v", err)
 			}
 		}
 	}()
-	code := (<-vCh).Run(gui, true, uxn.Nopf)
+	code := r.Run((<-vCh))
 	return fmt.Errorf("dev: exit code: %d", code)
 }
 
-func devBuild(talFile, romFile string) ([]byte, error) {
+func devBuild(out io.Writer, talFile, romFile string) ([]byte, error) {
 	cmd := exec.Command("uxnasm", talFile, romFile)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = out
+	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("uxnasm: %v", err)
 	}
