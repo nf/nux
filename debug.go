@@ -11,7 +11,6 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
-	"golang.org/x/exp/slices"
 
 	"github.com/nf/nux/uxn"
 	"github.com/nf/nux/varvara"
@@ -96,7 +95,7 @@ func (d *Debugger) rmWatch(s symbol) (removed bool) {
 	defer d.mu.Unlock()
 	for i, w := range d.watches {
 		if w.symbol == s {
-			d.watches = slices.Delete(d.watches, i, i+1)
+			d.watches = append(d.watches[:i], d.watches[i+1:]...)
 			return true
 		}
 	}
@@ -113,6 +112,43 @@ func (d *Debugger) SetSymbols(s *symbols) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.syms = s
+
+	// Rewrite watch addresses as they may have changed.
+	for i := 0; i < len(d.watches); {
+		w := &d.watches[i]
+		if w.label == "" {
+			// Preserve unlabeled addresses.
+			i++
+			continue
+		}
+		ss := s.withLabel(w.label)
+		if len(ss) == 0 {
+			// Remove labels that are now missing.
+			d.watches = append(d.watches[:i], d.watches[i+1:]...)
+			continue
+		}
+		w.addr = ss[0].addr
+		i++
+	}
+	// Adjust break and debug point if they have changed.
+	if bs := d.brk; bs != nil && bs.label != "" {
+		if ss := s.withLabel(bs.label); len(ss) == 0 {
+			d.brk = nil
+			d.Runner.Debug("break", 0)
+		} else if ss[0].addr != bs.addr {
+			bs.addr = ss[0].addr
+			d.Runner.Debug("break", bs.addr)
+		}
+	}
+	if ds := d.dbg; ds != nil && ds.label != "" {
+		if ss := s.withLabel(ds.label); len(ss) == 0 {
+			d.dbg = nil
+			d.Runner.Debug("debug", 0)
+		} else if ss[0].addr != ds.addr {
+			ds.addr = ss[0].addr
+			d.Runner.Debug("debug", ds.addr)
+		}
+	}
 }
 
 func NewDebugger() *Debugger {

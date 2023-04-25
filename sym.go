@@ -32,6 +32,17 @@ func (s *symbols) forAddr(addr uint16) []symbol {
 	return ss[i:j]
 }
 
+func (s *symbols) withLabel(label string) []symbol {
+	ss := s.byLabel
+	i := sort.Search(len(ss), func(i int) bool {
+		return ss[i].label >= label
+	})
+	j := i
+	for ; j < len(ss) && ss[j].label == label; j++ {
+	}
+	return ss[i:j]
+}
+
 func (s *symbols) withLabelPrefix(p string) []symbol {
 	ss := s.byLabel
 	i := sort.Search(len(ss), func(i int) bool {
@@ -80,14 +91,8 @@ func (sym *symbols) resolve(t string) []symbol {
 		return []symbol{{addr: uint16(i)}}
 	}
 	t, wild := strings.CutSuffix(t, "*")
-	ss := sym.withLabelPrefix(t)
 	if wild {
-		return ss
+		return sym.withLabelPrefix(t)
 	}
-	for _, s := range ss {
-		if s.label == t {
-			return []symbol{s}
-		}
-	}
-	return nil
+	return sym.withLabel(t)
 }
