@@ -9,6 +9,13 @@ import (
 	"strings"
 )
 
+type symbol struct {
+	addr  uint16
+	label string
+}
+
+func (s symbol) String() string { return fmt.Sprintf("%s (%.4x)", s.label, s.addr) }
+
 type symbols struct {
 	byAddr  []symbol
 	byLabel []symbol
@@ -37,13 +44,6 @@ func (s *symbols) withLabelPrefix(p string) (ss []symbol) {
 	}
 	return ss
 }
-
-type symbol struct {
-	addr  uint16
-	label string
-}
-
-func (s symbol) String() string { return fmt.Sprintf("%s (%.4x)", s.label, s.addr) }
 
 func parseSymbols(symFile string) (*symbols, error) {
 	b, err := os.ReadFile(symFile)
