@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -58,17 +59,21 @@ type Debugger struct {
 
 	log   *tview.TextView
 	watch *tview.TextView
+	tick  *tview.TextView
 	state *tview.TextView
 	input *tview.InputField
+	left  *tview.Flex
 	cols  *tview.Flex
 	rows  *tview.Flex
 	app   *tview.Application
 
 	dbg, brk *symbol
 
-	mu      sync.Mutex
-	syms    *symbols
-	watches []watch
+	mu        sync.Mutex
+	syms      *symbols
+	watches   []watch
+	started   time.Time
+	lastState time.Time
 }
 
 type watch struct {
@@ -114,11 +119,15 @@ func NewDebugger() *Debugger {
 		watch: tview.NewTextView().
 			SetWrap(false).
 			SetTextAlign(tview.AlignRight),
+		tick: tview.NewTextView().
+			SetWrap(false),
 		state: tview.NewTextView().
 			SetWrap(false).
 			SetDynamicColors(true),
 		input: tview.NewInputField(),
-		cols:  tview.NewFlex(),
+		left: tview.NewFlex().
+			SetDirection(tview.FlexRow),
+		cols: tview.NewFlex(),
 		rows: tview.NewFlex().
 			SetDirection(tview.FlexRow),
 		app: tview.NewApplication(),
@@ -126,9 +135,13 @@ func NewDebugger() *Debugger {
 	d.Log = d.log
 	d.log.SetChangedFunc(func() { d.app.Draw() })
 	d.watch.SetBackgroundColor(tcell.ColorDarkBlue)
+	d.tick.SetBackgroundColor(tcell.ColorDarkBlue)
 	d.state.SetBackgroundColor(tcell.ColorDarkGrey)
-	d.cols.
+	d.left.
 		AddItem(d.watch, 0, 1, false).
+		AddItem(d.tick, 4, 0, false)
+	d.cols.
+		AddItem(d.left, 0, 1, false).
 		AddItem(d.log, 0, 2, false)
 	d.rows.
 		AddItem(d.cols, 0, 1, false).
@@ -265,17 +278,38 @@ func parseCommand(in string) (string, bool) {
 	return in, false
 }
 
-func (d *Debugger) Run() error { return d.app.Run() }
+func (d *Debugger) Run() error {
+	t := time.NewTicker(30 * time.Millisecond)
+	defer t.Stop()
+	go func() {
+		for {
+			<-t.C
+			d.app.QueueUpdateDraw(func() {
+				d.tick.SetText(d.tickContent())
+			})
+		}
+	}()
+	return d.app.Run()
+}
 
 func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
-	var (
-		watch = d.watchContent(m)
-		state string
-	)
-	if k != varvara.ClearState && k != varvara.QuietState {
-		state = stateMsg(d.symbols(), m, k)
+	d.mu.Lock()
+	now := time.Now()
+	d.lastState = time.Now()
+	if d.started.IsZero() {
+		d.started = now
 	}
-	d.app.QueueUpdateDraw(func() {
+	if k == varvara.HaltState {
+		d.started = time.Time{}
+	}
+	watch := watchContent(d.watches, m)
+	d.mu.Unlock()
+
+	var state string
+	if k != varvara.ClearState && k != varvara.QuietState {
+		state = stateContent(d.symbols(), m, k)
+	}
+	d.app.QueueUpdate(func() {
 		switch k {
 		case varvara.DebugState, varvara.ClearState:
 			d.state.SetTextColor(tcell.ColorBlack)
@@ -297,7 +331,7 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 	})
 }
 
-func stateMsg(syms *symbols, m *uxn.Machine, k varvara.StateKind) string {
+func stateContent(syms *symbols, m *uxn.Machine, k varvara.StateKind) string {
 	var (
 		op    = uxn.Op(m.Mem[m.PC])
 		pcSym string
@@ -390,18 +424,10 @@ func formatStackVal(i int, pre, post *string, v uxn.StackVal, color string) {
 	}
 }
 
-func (d *Debugger) watchContent(m *uxn.Machine) string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func watchContent(watches []watch, m *uxn.Machine) string {
 	var b strings.Builder
-	if s := d.brk; s != nil {
-		fmt.Fprintf(&b, "%s [%.4x] brk!\n", s.label, s.addr)
-	}
-	if s := d.dbg; s != nil {
-		fmt.Fprintf(&b, "%s [%.4x] dbg?\n", s.label, s.addr)
-	}
-	for _, w := range d.watches {
-		if b.Len() > 0 {
+	for i, w := range watches {
+		if i > 0 {
 			b.WriteByte('\n')
 		}
 		fmt.Fprintf(&b, "%s [%.4x] ", w.label, w.addr)
@@ -410,6 +436,35 @@ func (d *Debugger) watchContent(m *uxn.Machine) string {
 		} else {
 			fmt.Fprintf(&b, "  %.2x", m.Mem[w.addr])
 		}
+	}
+	return b.String()
+}
+
+func (d *Debugger) tickContent() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	var b strings.Builder
+	now := time.Now()
+	if s := d.brk; s != nil {
+		fmt.Fprintf(&b, "brk [%.4x] %s\n", s.addr, s.label)
+	} else {
+		b.WriteByte('\n')
+	}
+	if s := d.dbg; s != nil {
+		fmt.Fprintf(&b, "dbg [%.4x] %s\n", s.addr, s.label)
+	} else {
+		b.WriteByte('\n')
+	}
+	if age := now.Sub(d.lastState).Truncate(time.Second); age > 0 {
+		fmt.Fprintf(&b, "last state: %s\n", age)
+	} else {
+		b.WriteByte('\n')
+	}
+	if d.started.IsZero() {
+		b.WriteString("stopped\n")
+	} else {
+		fmt.Fprintf(&b, "running for %s\n", now.Sub(d.started).Truncate(time.Second))
 	}
 	return b.String()
 }
