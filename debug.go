@@ -46,6 +46,8 @@ nux debugger commands and keyboard shortcuts:
 	help
 		Print these instructions. :)
 
+Refrences may use a "*" suffix to select all labels that match a prefix.
+
 Commands may be abbreviated using just their first character ("r" for "reset",
 etc), with the exceptions of "w2" for "watch2" and "rmw" for "rmwatch".
 `
@@ -75,6 +77,7 @@ type watch struct {
 }
 
 func (d *Debugger) addWatch(s symbol, short bool) {
+	d.rmWatch(s) // Prevent duplicate entries.
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.watches = append(d.watches, watch{s, short})
@@ -205,29 +208,38 @@ func NewDebugger() *Debugger {
 				}
 				return
 			}
-			s, ok := d.symbols().resolve(arg)
-			if !ok {
-				log.Printf("bad reference %q", arg)
+			syms := d.symbols().resolve(arg)
+			switch len(syms) {
+			case 0:
+				log.Printf("unknown reference %q", arg)
 				return
-			}
-			switch cmd {
-			case "break":
-				d.Runner.Debug("break", s.addr)
-				d.brk = &s
-			case "debug":
-				d.Runner.Debug("debug", s.addr)
-				d.dbg = &s
-			case "watch", "watch2":
-				d.addWatch(s, strings.HasSuffix(cmd, "2"))
-			case "rmwatch":
-				if d.rmWatch(s) {
-					log.Printf("watch removed: %s", arg)
-				} else {
-					log.Printf("watch not set: %s", arg)
+			case 1:
+				// OK
+			default:
+				if cmd == "break" || cmd == "debug" {
+					log.Printf("wildcards not supported for %s", cmd)
+					return
 				}
-				return
 			}
-			log.Printf("%s set: %.4x", cmd, s.addr)
+			for i := range syms {
+				s := syms[i]
+				switch cmd {
+				case "break":
+					d.Runner.Debug("break", s.addr)
+					d.brk = &s
+				case "debug":
+					d.Runner.Debug("debug", s.addr)
+					d.dbg = &s
+				case "watch", "watch2":
+					d.addWatch(s, strings.HasSuffix(cmd, "2"))
+				case "rmwatch":
+					if d.rmWatch(s) {
+						log.Printf("watch removed: %s", s)
+					}
+					continue
+				}
+				log.Printf("%s set: %s", cmd, s)
+			}
 		default:
 			d.Runner.Debug(cmd, 0)
 		}

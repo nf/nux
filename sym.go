@@ -21,28 +21,26 @@ type symbols struct {
 	byLabel []symbol
 }
 
-func (s *symbols) forAddr(addr uint16) (ss []symbol) {
-	i := sort.Search(len(s.byAddr), func(i int) bool {
-		return s.byAddr[i].addr >= addr
+func (s *symbols) forAddr(addr uint16) []symbol {
+	ss := s.byAddr
+	i := sort.Search(len(ss), func(i int) bool {
+		return ss[i].addr >= addr
 	})
-	for ; i < len(s.byAddr); i++ {
-		if s.byAddr[i].addr == addr {
-			ss = append(ss, s.byAddr[i])
-		}
+	j := i
+	for ; j < len(ss) && ss[j].addr == addr; j++ {
 	}
-	return ss
+	return ss[i:j]
 }
 
-func (s *symbols) withLabelPrefix(p string) (ss []symbol) {
-	i := sort.Search(len(s.byLabel), func(i int) bool {
-		return s.byLabel[i].label >= p
+func (s *symbols) withLabelPrefix(p string) []symbol {
+	ss := s.byLabel
+	i := sort.Search(len(ss), func(i int) bool {
+		return ss[i].label >= p
 	})
-	for ; i < len(s.byLabel); i++ {
-		if strings.HasPrefix(s.byLabel[i].label, p) {
-			ss = append(ss, s.byLabel[i])
-		}
+	j := i
+	for ; j < len(ss) && strings.HasPrefix(ss[j].label, p); j++ {
 	}
-	return ss
+	return ss[i:j]
 }
 
 func parseSymbols(symFile string) (*symbols, error) {
@@ -77,14 +75,19 @@ func parseSymbols(symFile string) (*symbols, error) {
 	return &syms, nil
 }
 
-func (sym *symbols) resolve(t string) (symbol, bool) {
+func (sym *symbols) resolve(t string) []symbol {
 	if i, err := strconv.ParseUint(t, 16, 16); err == nil {
-		return symbol{addr: uint16(i)}, true
+		return []symbol{{addr: uint16(i)}}
 	}
-	for _, s := range sym.withLabelPrefix(t) {
+	t, wild := strings.CutSuffix(t, "*")
+	ss := sym.withLabelPrefix(t)
+	if wild {
+		return ss
+	}
+	for _, s := range ss {
 		if s.label == t {
-			return s, true
+			return []symbol{s}
 		}
 	}
-	return symbol{}, false
+	return nil
 }
