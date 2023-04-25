@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -78,26 +79,28 @@ type Debugger struct {
 
 type watch struct {
 	symbol
-	short bool
+	short   bool
+	last    uint16
+	changed time.Time
 }
 
 func (d *Debugger) addWatch(s symbol, short bool) {
 	d.rmWatch(s) // Prevent duplicate entries.
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.watches = append(d.watches, watch{s, short})
+	d.watches = append(d.watches, watch{symbol: s, short: short, changed: time.Now()})
 }
 
 func (d *Debugger) rmWatch(s symbol) (removed bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	for _, short := range []bool{true, false} {
-		if i := slices.Index(d.watches, watch{s, short}); i >= 0 {
-			removed = true
+	for i, w := range d.watches {
+		if w.symbol == s {
 			d.watches = slices.Delete(d.watches, i, i+1)
+			return true
 		}
 	}
-	return
+	return false
 }
 
 func (d *Debugger) symbols() *symbols {
@@ -322,7 +325,8 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 	if k == varvara.HaltState {
 		d.started = time.Time{}
 	}
-	watch := watchContent(d.watches, m)
+	updateWatches(now, d.watches, m)
+	watch := watchContent(d.watches)
 	d.mu.Unlock()
 
 	var state string
@@ -344,7 +348,7 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 			d.state.SetTextColor(tcell.ColorWhite)
 			d.state.SetBackgroundColor(tcell.ColorDarkRed)
 		}
-		d.watch.SetText(watch)
+		d.watch.SetText(watch).ScrollToEnd()
 		if k != varvara.QuietState {
 			d.state.SetText(state)
 		}
@@ -444,7 +448,24 @@ func formatStackVal(i int, pre, post *string, v uxn.StackVal, color string) {
 	}
 }
 
-func watchContent(watches []watch, m *uxn.Machine) string {
+func updateWatches(now time.Time, watches []watch, m *uxn.Machine) {
+	for i := range watches {
+		w := &watches[i]
+		v := uint16(m.Mem[w.addr])
+		if w.short {
+			v += uint16(m.Mem[w.addr+1])
+		}
+		if w.last != v {
+			w.changed = now
+			w.last = v
+		}
+	}
+	sort.SliceStable(watches, func(i, j int) bool {
+		return watches[i].changed.Before(watches[j].changed)
+	})
+}
+
+func watchContent(watches []watch) string {
 	var b strings.Builder
 	for i, w := range watches {
 		if i > 0 {
@@ -452,9 +473,9 @@ func watchContent(watches []watch, m *uxn.Machine) string {
 		}
 		fmt.Fprintf(&b, "%s [%.4x] ", w.label, w.addr)
 		if w.short {
-			fmt.Fprintf(&b, "%.2x%.2x", m.Mem[w.addr], m.Mem[w.addr+1])
+			fmt.Fprintf(&b, "%.4x", w.last)
 		} else {
-			fmt.Fprintf(&b, "  %.2x", m.Mem[w.addr])
+			fmt.Fprintf(&b, "  %.2x", w.last)
 		}
 	}
 	return b.String()
