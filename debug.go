@@ -15,6 +15,41 @@ import (
 	"github.com/nf/nux/varvara"
 )
 
+const helpText = `
+nux debugger commands and keyboard shortcuts:
+
+	reset (F4)
+		Halt the uxn program, reset it to its initial state from ROM,
+		and run it. This unpauses uxn if it was paused, but preserves
+		any break or debug points that are set.
+	cont  (F5)
+		Resume uxn exeuction, if paused.
+	step  (F6)
+		Pause uxn (if not already paused) and execute one instruction.
+	halt  (F7)
+		Halt the uxn program.
+	break [ref]
+		Set the break point to the given reference (memory address or
+		label), or unset the break point if no reference is given.
+		When uxn reaches the break point it pauses execution.
+	debug [ref]
+		Set the debug point to the given reference, or unset the debug
+		point if no reference is given. When uxn reaches the debug
+		point it updates the debug status lines and any watches.
+	watch[2] <ref>
+		Add a watch for the given reference. If the "watch2" variant is
+		used then the reference is treated as a short, not a byte.
+	rmwatch <ref>
+		Remove any watches for the given reference.
+	exit  (^C)
+		Exit nux.
+	help
+		Print these instructions. :)
+
+Commands may be abbreviated using just their first character ("r" for "reset",
+etc), with the exceptions of "w2" for "watch2" and "rmw" for "rmwatch".
+`
+
 type Debugger struct {
 	Runner *varvara.Runner // Must be set before calling Run.
 	Log    io.Writer
@@ -136,15 +171,11 @@ func NewDebugger() *Debugger {
 		if key != tcell.KeyEnter {
 			return
 		}
-		cmd := d.input.GetText()
+		cmd := strings.TrimSpace(d.input.GetText())
 		if cmd == "" {
 			return
 		}
 		d.input.SetText("")
-		if cmd == "exit" {
-			d.app.Stop()
-			return
-		}
 		cmd, arg, _ := strings.Cut(cmd, " ")
 		cmd, ok := parseCommand(cmd)
 		if !ok {
@@ -152,6 +183,12 @@ func NewDebugger() *Debugger {
 			return
 		}
 		switch cmd {
+		case "exit":
+			d.app.Stop()
+			return
+		case "help":
+			log.Print(helpText)
+			return
 		case "break", "debug", "watch", "watch2", "rmwatch":
 			if arg == "" {
 				switch cmd {
@@ -200,6 +237,7 @@ func NewDebugger() *Debugger {
 
 func parseCommand(in string) (string, bool) {
 	if out, ok := map[string]string{
+		"help": "help", "exit": "exit",
 		"h": "halt", "halt": "halt",
 		"r": "reset", "reset": "reset",
 		"s": "step", "step": "step",
