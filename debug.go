@@ -87,7 +87,7 @@ func (d *Debugger) addWatch(s symbol, short bool) {
 	d.rmWatch(s) // Prevent duplicate entries.
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.watches = append(d.watches, watch{symbol: s, short: short, changed: time.Now()})
+	d.watches = append(d.watches, watch{symbol: s, short: short})
 }
 
 func (d *Debugger) rmWatch(s symbol) (removed bool) {
@@ -483,12 +483,16 @@ func formatStackVal(i int, pre, post *string, v uxn.StackVal, color string) {
 }
 
 func updateWatches(now time.Time, watches []watch, m *uxn.Machine) {
+	now = now.Truncate(10 * time.Second) // Prevent jumpiness.
 	for i := range watches {
 		w := &watches[i]
-		v := uint16(m.Mem[w.addr])
+		var v uint16
 		if w.short {
-			v += uint16(m.Mem[w.addr+1])
+			v = uint16(m.Mem[w.addr])<<8 + uint16(m.Mem[w.addr+1])
+		} else {
+			v = uint16(m.Mem[w.addr])
 		}
+
 		if w.last != v {
 			w.changed = now
 			w.last = v
