@@ -80,6 +80,7 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 		if prev != nil {
 			v.breakAddr, v.debugAddr = prev.breakAddr, prev.debugAddr
 		}
+		v.state(v.m, ClearState)
 	}
 	newV()
 	var (
@@ -98,7 +99,7 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 			running = true
 			go func() { execErr <- v.Exec(g) }()
 			if r.dev {
-				log.Printf("unx: started")
+				log.Printf("uxn: started")
 			}
 		}
 		halt := func() {

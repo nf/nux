@@ -58,7 +58,8 @@ func NewDebugger() *Debugger {
 			SetWrap(false).
 			SetTextAlign(tview.AlignRight),
 		state: tview.NewTextView().
-			SetWrap(false),
+			SetWrap(false).
+			SetDynamicColors(true),
 		input: tview.NewInputField(),
 		cols:  tview.NewFlex(),
 		rows: tview.NewFlex().
@@ -76,7 +77,23 @@ func NewDebugger() *Debugger {
 		AddItem(d.cols, 0, 1, false).
 		AddItem(d.state, 3, 0, false).
 		AddItem(d.input, 1, 0, true)
-	d.app.SetRoot(d.rows, true)
+	d.app.
+		SetRoot(d.rows, true).
+		SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+			switch e.Key() {
+			case tcell.KeyF4:
+				d.Runner.Debug("reset", 0)
+			case tcell.KeyF5:
+				d.Runner.Debug("cont", 0)
+			case tcell.KeyF6:
+				d.Runner.Debug("pause", 0)
+			case tcell.KeyF7:
+				d.Runner.Debug("step", 0)
+			default:
+				return e
+			}
+			return nil
+		})
 
 	d.input.SetAutocompleteFunc(func(t string) (entries []string) {
 		if cmd, arg, ok := strings.Cut(t, " "); ok {
@@ -141,11 +158,11 @@ func NewDebugger() *Debugger {
 			}
 		}
 		d.Runner.Debug(cmd, 0)
-		switch cmd[0] {
-		case 'b':
+		switch cmd {
+		case "break", "b":
 			d.brk = nil
 			log.Print("cleared break")
-		case 'd':
+		case "debug", "d":
 			d.dbg = nil
 			log.Print("cleared debug")
 		}
@@ -200,35 +217,82 @@ func stateMsg(syms *symbols, m *uxn.Machine, k varvara.StateKind) string {
 			// None.
 		case 1:
 			sym = s[0].String()
-		case 2:
+		default:
 			switch op.Base() {
 			case uxn.DEO, uxn.DEI:
 				sym = s[0].String()
 			default:
-				sym = s[1].String()
+				sym = s[len(s)-1].String()
 			}
-		default:
-			for i, s := range s {
-				if i != 0 {
-					sym += " "
-				}
-				sym += s.String()
+		}
+		if sym != "" {
+			switch op.Base() {
+			case uxn.JCI, uxn.JMI, uxn.JSI:
+				// Address doesn't come from stack.
+			default:
+				sym = stackColor1 + sym + "[-:-]"
 			}
 		}
 	}
-	kind := "       "
+	kind := "     "
 	switch k {
 	case varvara.BreakState:
-		kind = "[break]"
+		kind = "BREAK"
 	case varvara.DebugState:
-		kind = "[debug]"
+		kind = "DEBUG"
 	case varvara.PauseState:
-		kind = "[pause]"
+		kind = "PAUSE"
 	case varvara.HaltState:
-		kind = "[HALT!]"
+		kind = "HALT!"
 	}
-	return fmt.Sprintf("%.4x %- 6s %s %s%s\nws: %v\nrs: %v\n",
-		m.PC, op, kind, pcSym, sym, m.Work, m.Ret)
+	var workOp, retOp uxn.Op
+	if op.Base() == uxn.STH {
+		workOp, retOp = op, op
+	} else if op.Return() {
+		retOp = op
+	} else {
+		workOp = op
+	}
+	return fmt.Sprintf("%s %.4x %- 6s %s%s\nws: %v\nrs: %v\n",
+		kind, m.PC, op, pcSym, sym,
+		formatStack(&m.Work, workOp),
+		formatStack(&m.Ret, retOp))
+}
+
+const (
+	stackColor1 = "[black:aqua]"
+	stackColor2 = "[black:fuchsia]"
+	stackColor3 = "[black:lime]"
+)
+
+func formatStack(st *uxn.Stack, op uxn.Op) string {
+	v1, v2, v3 := op.StackArgs()
+
+	var b strings.Builder
+	b.WriteByte('(')
+	for i, v := range st.Bytes[:st.Ptr] {
+		b.WriteByte(' ')
+		if op > 0 {
+			idx, pre, post := int(st.Ptr)-i, "", ""
+			formatStackVal(idx, &pre, &post, v3, stackColor3)
+			formatStackVal(idx, &pre, &post, v2, stackColor2)
+			formatStackVal(idx, &pre, &post, v1, stackColor1)
+			b.WriteString(pre)
+			fmt.Fprintf(&b, "%.2x", v)
+			b.WriteString(post)
+		} else {
+			fmt.Fprintf(&b, "%.2x", v)
+		}
+	}
+	b.WriteByte(' ')
+	b.WriteByte(')')
+	return b.String()
+}
+
+func formatStackVal(i int, pre, post *string, v uxn.StackVal, color string) {
+	if v.Index > 0 && (v.Index == i || v.Index-(v.Size-1) == i) {
+		*pre, *post = color, "[-:-]"
+	}
 }
 
 func (d *Debugger) watchContent(m *uxn.Machine) string {
