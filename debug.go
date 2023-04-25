@@ -62,7 +62,7 @@ type Debugger struct {
 	tick  *tview.TextView
 	state *tview.TextView
 	input *tview.InputField
-	left  *tview.Flex
+	right *tview.Flex
 	cols  *tview.Flex
 	rows  *tview.Flex
 	app   *tview.Application
@@ -165,7 +165,7 @@ func NewDebugger() *Debugger {
 			SetWrap(false).
 			SetDynamicColors(true),
 		input: tview.NewInputField(),
-		left: tview.NewFlex().
+		right: tview.NewFlex().
 			SetDirection(tview.FlexRow),
 		cols: tview.NewFlex(),
 		rows: tview.NewFlex().
@@ -174,17 +174,15 @@ func NewDebugger() *Debugger {
 	}
 	d.Log = d.log
 	d.log.SetChangedFunc(func() { d.app.Draw() })
-	d.watch.SetBackgroundColor(tcell.ColorDarkBlue).
-		SetBorderPadding(0, 0, 0, 1)
-	d.tick.SetBackgroundColor(tcell.ColorDarkBlue).
-		SetBorderPadding(0, 0, 0, 1)
+	d.watch.SetBackgroundColor(tcell.ColorDarkBlue)
+	d.tick.SetBackgroundColor(tcell.ColorDarkBlue)
 	d.state.SetBackgroundColor(tcell.ColorDarkGrey)
-	d.left.
+	d.right.
 		AddItem(d.watch, 0, 1, false).
 		AddItem(d.tick, 4, 0, false)
 	d.cols.
-		AddItem(d.left, 0, 1, false).
-		AddItem(d.log, 0, 2, false)
+		AddItem(d.log, 0, 2, false).
+		AddItem(d.right, 0, 1, false)
 	d.rows.
 		AddItem(d.cols, 0, 1, false).
 		AddItem(d.state, 3, 0, false).
