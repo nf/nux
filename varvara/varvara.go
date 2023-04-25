@@ -291,6 +291,12 @@ func (v *Varvara) Exec(g *GUI) error {
 						return nil
 					}
 					if vec := v.sys.Halt(); vec > 0 {
+						v.m.Work.Ptr = 4
+						v.m.Work.Bytes[0] = byte(h.Addr >> 8)
+						v.m.Work.Bytes[1] = byte(h.Addr)
+						v.m.Work.Bytes[2] = byte(h.Op)
+						v.m.Work.Bytes[3] = byte(h.HaltCode)
+						v.m.Ret.Ptr = 0
 						v.m.PC = vec
 						continue
 					}

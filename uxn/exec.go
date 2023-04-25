@@ -37,8 +37,7 @@ var ErrBRK = errors.New("BRK")
 
 // Exec executes the intsruction at m.PC. It returns ErrBRK if that instruction
 // is BRK, and otherwise only returns a non-nil error if it encounters a halt
-// condition. In such a case, if the halt code is not Debug, the stacks are
-// emptied and the PC, op code, and halt code are pushed onto the work stack.
+// condition.
 func (m *Machine) Exec() (err error) {
 	var (
 		op   = Op(m.Mem[m.PC])
@@ -51,14 +50,6 @@ func (m *Machine) Exec() (err error) {
 					Addr:     opPC,
 					Op:       op,
 					HaltCode: code,
-				}
-				if code != Debug {
-					m.Work.Ptr = 0
-					st := m.Work.wrap()
-					st.PushShort(opPC)
-					st.Push(byte(op))
-					st.Push(byte(code))
-					m.Ret.Ptr = 0
 				}
 			} else {
 				panic(e)
