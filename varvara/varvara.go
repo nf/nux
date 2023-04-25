@@ -137,22 +137,20 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 				}
 			case op := <-r.debug:
 				switch op.cmd {
-				case "halt", "h":
+				case "halt":
 					halt()
-				case "reset", "r":
+				case "reset":
 					halt()
 					newV()
 					g.Swap(v)
 					exec()
-				case "pause", "p":
-					v.Pause()
-				case "step", "s":
+				case "step":
 					v.Step()
-				case "cont", "c":
+				case "cont":
 					v.Continue()
-				case "break", "b":
+				case "break":
 					v.SetBreak(op.addr)
-				case "debug", "d":
+				case "debug":
 					v.SetDebug(op.addr)
 				case "exit":
 					halt()
@@ -224,10 +222,6 @@ func (v *Varvara) Halt() {
 		close(v.halt)
 		v.halted = true
 	}
-	v.Pause()
-}
-
-func (v *Varvara) Pause() {
 	atomic.StoreInt32(&v.paused, 1)
 }
 
@@ -256,6 +250,7 @@ func (v *Varvara) SetDebug(addr uint16) {
 }
 
 func (v *Varvara) Exec(g *GUI) error {
+	defer v.state(v.m, HaltState)
 	for {
 		clear, quiet := false, true
 		for {
@@ -291,7 +286,6 @@ func (v *Varvara) Exec(g *GUI) error {
 					v.state(v.m, DebugState)
 					continue
 				}
-				v.state(v.m, HaltState)
 				if ok {
 					if h.HaltCode == uxn.Halt {
 						return nil

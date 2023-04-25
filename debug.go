@@ -9,6 +9,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"golang.org/x/exp/slices"
 
 	"github.com/nf/nux/uxn"
 	"github.com/nf/nux/varvara"
@@ -36,6 +37,24 @@ type Debugger struct {
 type watch struct {
 	symbol
 	short bool
+}
+
+func (d *Debugger) addWatch(s symbol, short bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.watches = append(d.watches, watch{s, short})
+}
+
+func (d *Debugger) rmWatch(s symbol) (removed bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, short := range []bool{true, false} {
+		if i := slices.Index(d.watches, watch{s, short}); i >= 0 {
+			removed = true
+			d.watches = slices.Delete(d.watches, i, i+1)
+		}
+	}
+	return
 }
 
 func (d *Debugger) symbols() *symbols {
@@ -86,9 +105,9 @@ func NewDebugger() *Debugger {
 			case tcell.KeyF5:
 				d.Runner.Debug("cont", 0)
 			case tcell.KeyF6:
-				d.Runner.Debug("pause", 0)
-			case tcell.KeyF7:
 				d.Runner.Debug("step", 0)
+			case tcell.KeyF7:
+				d.Runner.Debug("halt", 0)
 			default:
 				return e
 			}
@@ -98,7 +117,8 @@ func NewDebugger() *Debugger {
 	d.input.SetAutocompleteFunc(func(t string) (entries []string) {
 		if cmd, arg, ok := strings.Cut(t, " "); ok {
 			switch cmd {
-			case "b", "break", "d", "debug", "w", "w2", "watch", "watch2":
+			case "b", "break", "d", "debug",
+				"w", "watch", "w2", "watch2", "rmw", "rmwatch":
 				for _, s := range d.symbols().withLabelPrefix(arg) {
 					entries = append(entries, cmd+" "+s.label)
 				}
@@ -125,49 +145,74 @@ func NewDebugger() *Debugger {
 			d.app.Stop()
 			return
 		}
-		if cmd, arg, ok := strings.Cut(cmd, " "); ok {
-			switch cmd {
-			case "b", "break", "d", "debug":
-				s, ok := d.symbols().resolve(arg)
-				if !ok {
-					log.Printf("invalid addr %q", arg)
-					return
+		cmd, arg, _ := strings.Cut(cmd, " ")
+		cmd, ok := parseCommand(cmd)
+		if !ok {
+			log.Printf("bad command %q", cmd)
+			return
+		}
+		switch cmd {
+		case "break", "debug", "watch", "watch2", "rmwatch":
+			if arg == "" {
+				switch cmd {
+				case "break":
+					d.Runner.Debug("break", 0)
+					d.brk = nil
+					log.Print("cleared break")
+				case "debug":
+					d.Runner.Debug("debug", 0)
+					d.dbg = nil
+					log.Print("cleared debug")
+				default:
+					log.Printf("%s requires reference argument", cmd)
 				}
-				d.Runner.Debug(cmd, s.addr)
-				switch cmd[0] {
-				case 'b':
-					d.brk = &s
-					log.Printf("set break %.4x", s.addr)
-				case 'd':
-					d.dbg = &s
-					log.Printf("set debug %.4x", s.addr)
-				}
-				return
-			case "w", "w2", "watch", "watch2":
-				s, ok := d.symbols().resolve(arg)
-				if !ok {
-					log.Printf("invalid address %q", arg)
-					return
-				}
-				d.mu.Lock()
-				d.watches = append(d.watches,
-					watch{symbol: s, short: strings.HasSuffix(cmd, "2")})
-				d.mu.Unlock()
-				log.Printf("watching %.4x", s.addr)
 				return
 			}
-		}
-		d.Runner.Debug(cmd, 0)
-		switch cmd {
-		case "break", "b":
-			d.brk = nil
-			log.Print("cleared break")
-		case "debug", "d":
-			d.dbg = nil
-			log.Print("cleared debug")
+			s, ok := d.symbols().resolve(arg)
+			if !ok {
+				log.Printf("bad reference %q", arg)
+				return
+			}
+			switch cmd {
+			case "break":
+				d.Runner.Debug("break", s.addr)
+				d.brk = &s
+			case "debug":
+				d.Runner.Debug("debug", s.addr)
+				d.dbg = &s
+			case "watch", "watch2":
+				d.addWatch(s, strings.HasSuffix(cmd, "2"))
+			case "rmwatch":
+				if d.rmWatch(s) {
+					log.Printf("watch removed: %s", arg)
+				} else {
+					log.Printf("watch not set: %s", arg)
+				}
+				return
+			}
+			log.Printf("%s set: %.4x", cmd, s.addr)
+		default:
+			d.Runner.Debug(cmd, 0)
 		}
 	})
 	return d
+}
+
+func parseCommand(in string) (string, bool) {
+	if out, ok := map[string]string{
+		"h": "halt", "halt": "halt",
+		"r": "reset", "reset": "reset",
+		"s": "step", "step": "step",
+		"c": "cont", "cont": "cont",
+		"b": "break", "break": "break",
+		"d": "debug", "debug": "debug",
+		"w": "watch", "watch": "watch",
+		"w2": "watch2", "watch2": "watch2",
+		"rmw": "rmwatch", "rmwatch": "rmwatch",
+	}[in]; ok {
+		return out, true
+	}
+	return in, false
 }
 
 func (d *Debugger) Run() error { return d.app.Run() }
