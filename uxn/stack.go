@@ -27,7 +27,7 @@ func (s *Stack) PeekShort() (uint16, bool) {
 	if s.Ptr < 2 {
 		return 0, false
 	}
-	return uint16(s.Bytes[s.Ptr-2])<<8 + uint16(s.Bytes[s.Ptr-1]), true
+	return short(s.Bytes[s.Ptr-2], s.Bytes[s.Ptr-1]), true
 }
 
 func (s *Stack) wrap() *stackWrapper { return s.keep(false) }

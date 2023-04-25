@@ -79,7 +79,7 @@ func (m *Machine) Exec() (err error) {
 		if op == JSI {
 			m.Ret.wrap().PushShort(m.PC)
 		}
-		m.PC += uint16(m.Mem[m.PC-2])<<8 + uint16(m.Mem[m.PC-1])
+		m.PC += short(m.Mem[m.PC-2], m.Mem[m.PC-1])
 		return nil
 	}
 
@@ -267,7 +267,7 @@ func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
 func (m *Machine) OpAddr(addr uint16) (uint16, bool) {
 	switch op := Op(m.Mem[addr]); op.Base() {
 	case JCI, JMI, JSI:
-		return m.PC + uint16(m.Mem[m.PC+1])<<8 + uint16(m.Mem[m.PC+2]) + 3, true
+		return m.PC + short(m.Mem[m.PC+1], m.Mem[m.PC+2]) + 3, true
 	case JMP, JCN, JSR, LDR, STR, LDA, STA, LDZ, STZ, DEI, DEO:
 		var st *Stack
 		if op.Return() {
@@ -333,4 +333,8 @@ func (c HaltCode) String() string {
 		return s
 	}
 	return fmt.Sprintf("unknown (%.2x)", byte(c))
+}
+
+func short(hi, lo byte) uint16 {
+	return uint16(hi)<<8 + uint16(lo)
 }
