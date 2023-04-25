@@ -30,6 +30,49 @@ func (b Op) Base() Op {
 	}
 }
 
+// StackVal holds the position and width of a value on the stack.
+type StackVal struct {
+	Index int // from top of stack (1 is first, 0 is none)
+	Size  int // 1 for byte, 2 for short
+}
+
+// StackArgs reports the stack arguments consumed by Op.
+// If any of the args are zero then they not consumed.
+func (op Op) StackArgs() (a, b, c StackVal) {
+	type v = StackVal
+	w, t := 1, 1
+	if op.Short() {
+		w, t = 2, 2
+	}
+	switch op.Base() {
+	case JMP, JSR, STH, INC, POP, DUP:
+		a = v{w, t}
+	case SWP, EQU, NEQ, GTH, LTH, ADD, SUB, MUL, DIV, AND, ORA, EOR:
+		a = v{w, t}
+		b = v{w * 2, t}
+	case ROT:
+		a = v{w, t}
+		b = v{w * 2, t}
+		c = v{w * 3, t}
+	case NIP, OVR:
+		a = v{w * 2, t}
+	case JCN:
+		a = v{w, t}
+		b = v{w + 1, 1}
+	case LDZ, LDR, DEI, JCI:
+		a = v{1, 1}
+	case STZ, STR, DEO, SFT:
+		a = v{1, 1}
+		b = v{1 + w, t}
+	case LDA:
+		a = v{2, 2}
+	case STA:
+		a = v{2, 2}
+		b = v{2 + w, t}
+	}
+	return
+}
+
 const (
 	BRK Op = iota
 	INC
