@@ -17,14 +17,16 @@ func main() {
 	log.SetFlags(0)
 
 	var (
+		cliFlag   = flag.Bool("cli", false, "disable GUI features")
+		devFlag   = flag.Bool("dev", false, "enable developer mode (live re-build and run an untxal program)")
+		debugFlag = flag.Bool("debug", false, "enable debugger (implies -dev)")
+
 		cpuProfileFlag = flag.String("cpu_profile", "", "write CPU profile to `file`")
-		guiFlag        = flag.Bool("gui", false, "enable GUI features")
-		devFlag        = flag.Bool("dev", false, "enable developer mode (live re-build and run an untxal program)")
 	)
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: %s <program.rom>\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "       %s -dev <program.tal>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s [-cli] <program.rom>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "       %s [-cli] <-dev | -debug> <program.tal>\n", os.Args[0])
 		flag.PrintDefaults()
 		os.Exit(2)
 	}
@@ -33,8 +35,8 @@ func main() {
 		flag.Usage()
 	}
 
-	if *devFlag {
-		if err := devMode(*guiFlag, flag.Arg(0)); err != nil {
+	if *devFlag || *debugFlag {
+		if err := devMode(!*cliFlag, *debugFlag, flag.Arg(0)); err != nil {
 			log.Fatal(err)
 		}
 		return
@@ -55,7 +57,7 @@ func main() {
 		cpuProfile = f
 	}
 
-	r := varvara.NewRunner(*guiFlag, false, nil)
+	r := varvara.NewRunner(!*cliFlag, false, nil)
 	code := r.Run(rom)
 
 	if f := cpuProfile; f != nil {

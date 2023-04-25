@@ -35,6 +35,10 @@ func NewMachine(rom []byte) *Machine {
 
 var ErrBRK = errors.New("BRK")
 
+// Exec executes the intsruction at m.PC. It returns ErrBRK if that instruction
+// is BRK, and otherwise only returns a non-nil error if it encounters a halt
+// condition. In such a case, if the halt code is not Debug, the stacks are
+// emptied and the PC, op code, and halt code are pushed onto the work stack.
 func (m *Machine) Exec() (err error) {
 	var (
 		op   = Op(m.Mem[m.PC])
@@ -48,12 +52,14 @@ func (m *Machine) Exec() (err error) {
 					Op:       op,
 					HaltCode: code,
 				}
-				m.Work.Ptr = 0
-				st := m.Work.wrap()
-				st.PushShort(opPC)
-				st.Push(byte(op))
-				st.Push(byte(code))
-				m.Ret.Ptr = 0
+				if code != Debug {
+					m.Work.Ptr = 0
+					st := m.Work.wrap()
+					st.PushShort(opPC)
+					st.Push(byte(op))
+					st.Push(byte(code))
+					m.Ret.Ptr = 0
+				}
 			} else {
 				panic(e)
 			}
@@ -290,8 +296,8 @@ func (m *Machine) OpAddr(addr uint16) (uint16, bool) {
 	return 0, false
 }
 
-// HaltError is returned by ExecVector if an overflow, underflow, or division
-// by zero occurs.
+// HaltError is returned by Exec if execution is halted by
+// the program for some reason.
 type HaltError struct {
 	HaltCode
 	Op   Op
@@ -310,6 +316,11 @@ const (
 	Underflow    HaltCode = 0x01
 	Overflow     HaltCode = 0x02
 	DivideByZero HaltCode = 0x03
+
+	// Debug is treated differently by Exec, which will still return a
+	// HaltError but the stacks are left unchanged and the program may
+	// cotinue to execute normally.
+	Debug HaltCode = 0xff
 )
 
 func (c HaltCode) String() string {

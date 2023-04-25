@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"strings"
 	"sync"
@@ -13,8 +14,9 @@ import (
 	"github.com/nf/nux/varvara"
 )
 
-type debugger struct {
-	run *varvara.Runner
+type Debugger struct {
+	Runner *varvara.Runner // Must be set before calling Run.
+	Log    io.Writer
 
 	log   *tview.TextView
 	watch *tview.TextView
@@ -36,20 +38,20 @@ type watch struct {
 	short bool
 }
 
-func (d *debugger) symbols() *symbols {
+func (d *Debugger) symbols() *symbols {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.syms
 }
 
-func (d *debugger) setSymbols(s *symbols) {
+func (d *Debugger) SetSymbols(s *symbols) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.syms = s
 }
 
-func newDebugView() *debugger {
-	d := &debugger{
+func NewDebugger() *Debugger {
+	d := &Debugger{
 		log: tview.NewTextView().
 			SetMaxLines(1000),
 		watch: tview.NewTextView().
@@ -63,6 +65,7 @@ func newDebugView() *debugger {
 			SetDirection(tview.FlexRow),
 		app: tview.NewApplication(),
 	}
+	d.Log = d.log
 	d.log.SetChangedFunc(func() { d.app.Draw() })
 	d.watch.SetBackgroundColor(tcell.ColorDarkBlue)
 	d.state.SetBackgroundColor(tcell.ColorDarkGrey)
@@ -113,7 +116,7 @@ func newDebugView() *debugger {
 					log.Printf("invalid addr %q", arg)
 					return
 				}
-				d.run.Debug(cmd, s.addr)
+				d.Runner.Debug(cmd, s.addr)
 				switch cmd[0] {
 				case 'b':
 					d.brk = &s
@@ -137,7 +140,7 @@ func newDebugView() *debugger {
 				return
 			}
 		}
-		d.run.Debug(cmd, 0)
+		d.Runner.Debug(cmd, 0)
 		switch cmd[0] {
 		case 'b':
 			d.brk = nil
@@ -150,9 +153,9 @@ func newDebugView() *debugger {
 	return d
 }
 
-func (d *debugger) Run() error { return d.app.Run() }
+func (d *Debugger) Run() error { return d.app.Run() }
 
-func (d *debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
+func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 	var (
 		watch = d.watchContent(m)
 		state string
@@ -228,7 +231,7 @@ func stateMsg(syms *symbols, m *uxn.Machine, k varvara.StateKind) string {
 		m.PC, op, kind, pcSym, sym, m.Work, m.Ret)
 }
 
-func (d *debugger) watchContent(m *uxn.Machine) string {
+func (d *Debugger) watchContent(m *uxn.Machine) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var b strings.Builder

@@ -14,7 +14,7 @@ import (
 	"github.com/nf/nux/varvara"
 )
 
-func devMode(gui bool, talFile string) error {
+func devMode(enableGUI, enableDebug bool, talFile string) error {
 	talFile = filepath.Clean(talFile)
 
 	watcher, err := fsnotify.NewWatcher()
@@ -32,19 +32,29 @@ func devMode(gui bool, talFile string) error {
 	defer os.RemoveAll(tmp)
 	romFile := filepath.Join(tmp, filepath.Base(talFile)+".rom")
 
-	debug := newDebugView()
-	runner := varvara.NewRunner(gui, true, debug.StateFunc)
-	debug.run = runner
-	log.SetPrefix("")
-	log.SetOutput(debug.log)
-	go func() {
-		if err := debug.Run(); err != nil {
-			log.Fatalf("debug: %v", err)
-		}
-		log.SetOutput(os.Stderr)
-		log.SetPrefix("nux: ")
-		runner.Debug("exit", 0)
-	}()
+	var (
+		runner *varvara.Runner
+		debug  *Debugger
+	)
+	if enableDebug {
+		debug = NewDebugger()
+		runner = varvara.NewRunner(enableGUI, true, debug.StateFunc)
+		runner.SetOutput(debug.Log)
+		debug.Runner = runner
+
+		log.SetPrefix("")
+		log.SetOutput(debug.log)
+		go func() {
+			if err := debug.Run(); err != nil {
+				log.Fatalf("debug: %v", err)
+			}
+			log.SetOutput(os.Stderr)
+			log.SetPrefix("nux: ")
+			runner.Debug("exit", 0)
+		}()
+	} else {
+		runner = varvara.NewRunner(enableGUI, true, nil)
+	}
 
 	romCh := make(chan []byte)
 	go func() {
@@ -54,17 +64,23 @@ func devMode(gui bool, talFile string) error {
 			select {
 			case <-run:
 				log.Printf("dev: build %s", filepath.Base(talFile))
-				rom, err := devBuild(debug.log, talFile, romFile)
+				var out io.Writer = os.Stderr
+				if debug != nil {
+					out = debug.Log
+				}
+				rom, err := devBuild(out, talFile, romFile)
 				if err != nil {
 					log.Printf("dev: %v", err)
 					break
 				}
-				syms, err := parseSymbols(romFile + ".sym")
-				if err != nil {
-					log.Printf("dev: reading symbols: %v", err)
-					break
+				if debug != nil {
+					syms, err := parseSymbols(romFile + ".sym")
+					if err != nil {
+						log.Printf("dev: reading symbols: %v", err)
+						break
+					}
+					debug.SetSymbols(syms)
 				}
-				debug.setSymbols(syms)
 				if !started {
 					log.Printf("dev: start")
 					romCh <- rom

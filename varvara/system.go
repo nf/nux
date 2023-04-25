@@ -1,8 +1,6 @@
 package varvara
 
 import (
-	"log"
-
 	"github.com/nf/nux/uxn"
 )
 
@@ -45,11 +43,7 @@ func (s *System) Out(p, b byte) {
 			}
 		}
 	case 0xe:
-		if s.state != nil {
-			s.state(s.m, DebugState)
-		} else {
-			log.Printf("%x\t%v\t%v\n", s.m.PC, s.m.Work, s.m.Ret)
-		}
+		panic(uxn.Debug)
 	case 0xf:
 		if b != 0 {
 			panic(uxn.Halt) // Stop execution.

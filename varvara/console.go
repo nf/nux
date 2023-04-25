@@ -1,8 +1,8 @@
 package varvara
 
 import (
+	"io"
 	"log"
-	"os"
 )
 
 type Console struct {
@@ -10,6 +10,9 @@ type Console struct {
 
 	mem   deviceMem
 	input <-chan byte
+
+	in       io.Reader
+	out, err io.Writer
 }
 
 func (c *Console) Vector() uint16 { return c.mem.short(0x0) }
@@ -36,20 +39,20 @@ func (c *Console) Out(p, b byte) {
 				input = make(chan byte, 1)
 				ready = make(chan bool)
 			)
-			go readInput(input, ready)
+			go c.readInput(input, ready)
 			c.input, c.Ready = input, ready
 		}
 	case 0x08:
-		os.Stdout.Write([]byte{b})
+		c.out.Write([]byte{b})
 	case 0x09:
-		os.Stderr.Write([]byte{b})
+		c.err.Write([]byte{b})
 	}
 }
 
-func readInput(input chan<- byte, ready chan<- bool) {
+func (c *Console) readInput(input chan<- byte, ready chan<- bool) {
 	for {
 		var b [1]byte
-		if _, err := os.Stdin.Read(b[:]); err != nil {
+		if _, err := c.in.Read(b[:]); err != nil {
 			log.Printf("reading stdin: %v", err)
 			return
 		}

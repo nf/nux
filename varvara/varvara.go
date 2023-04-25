@@ -2,7 +2,9 @@
 package varvara
 
 import (
+	"io"
 	"log"
+	"os"
 	"sync/atomic"
 
 	"github.com/nf/nux/uxn"
@@ -16,6 +18,8 @@ type Runner struct {
 	swap     chan []byte
 	swapDone chan bool
 	debug    chan debugOp
+
+	stdout, stderr io.Writer
 }
 
 type StateFunc func(*uxn.Machine, StateKind)
@@ -42,12 +46,20 @@ func NewRunner(enableGUI, devMode bool, state StateFunc) *Runner {
 		swap:     make(chan []byte),
 		swapDone: make(chan bool),
 		debug:    make(chan debugOp),
+
+		stdout: os.Stdout,
+		stderr: os.Stderr,
 	}
 }
 
 type debugOp struct {
 	cmd  string
 	addr uint16
+}
+
+func (r *Runner) SetOutput(w io.Writer) {
+	r.stdout = w
+	r.stderr = w
 }
 
 func (r *Runner) Debug(cmd string, addr uint16) { r.debug <- debugOp{cmd, addr} }
@@ -61,8 +73,16 @@ func (r *Runner) Swap(rom []byte) {
 }
 
 func (r *Runner) Run(rom []byte) (exitCode int) {
+	var v *Varvara
+	newV := func() {
+		prev := v
+		v = New(rom, r.state, r.stdout, r.stderr)
+		if prev != nil {
+			v.breakAddr, v.debugAddr = prev.breakAddr, prev.debugAddr
+		}
+	}
+	newV()
 	var (
-		v    = New(rom, r.state)
 		g    = NewGUI(v)
 		exit = make(chan bool)
 	)
@@ -77,17 +97,20 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 			}
 			running = true
 			go func() { execErr <- v.Exec(g) }()
-			log.Printf("unx: started")
+			if r.dev {
+				log.Printf("unx: started")
+			}
 		}
 		halt := func() {
-			if running {
-				v.Halt()
-				if err := <-execErr; err != nil {
-					log.Printf("uxn: stopped: %v", err)
-				} else {
-					log.Printf("uxn: stopped")
-				}
-				running = false
+			if !running {
+				return
+			}
+			running = false
+			v.Halt()
+			if err := <-execErr; err != nil {
+				log.Printf("uxn: stopped: %v", err)
+			} else {
+				log.Printf("uxn: stopped")
 			}
 		}
 		exec()
@@ -95,9 +118,7 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 			select {
 			case rom = <-r.swap:
 				halt()
-				brk, dbg := v.breakAddr, v.debugAddr
-				v = New(rom, r.state)
-				v.breakAddr, v.debugAddr = brk, dbg
+				newV()
 				g.Swap(v)
 				exec()
 				r.swapDone <- true
@@ -119,9 +140,7 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 					halt()
 				case "reset", "r":
 					halt()
-					brk, dbg := v.breakAddr, v.debugAddr
-					v = New(rom, r.state)
-					v.breakAddr, v.debugAddr = brk, dbg
+					newV()
 					g.Swap(v)
 					exec()
 				case "pause", "p":
@@ -167,7 +186,7 @@ type Varvara struct {
 
 	state StateFunc
 
-	interrupt int32
+	paused    int32
 	breakAddr int32
 	debugAddr int32
 	halted    bool
@@ -175,7 +194,7 @@ type Varvara struct {
 	cont      chan bool
 }
 
-func New(rom []byte, state StateFunc) *Varvara {
+func New(rom []byte, state StateFunc, stdout, stderr io.Writer) *Varvara {
 	m := uxn.NewMachine(rom)
 	v := &Varvara{
 		m:     m,
@@ -187,6 +206,9 @@ func New(rom []byte, state StateFunc) *Varvara {
 	v.sys.main = m.Mem[:]
 	v.sys.m = m
 	v.sys.state = state
+	v.con.in = os.Stdin
+	v.con.out = stdout
+	v.con.err = stderr
 	v.scr.main = m.Mem[:]
 	v.scr.sys = &v.sys
 	v.scr.setWidth(0x100)
@@ -205,11 +227,11 @@ func (v *Varvara) Halt() {
 }
 
 func (v *Varvara) Pause() {
-	atomic.StoreInt32(&v.interrupt, 1)
+	atomic.StoreInt32(&v.paused, 1)
 }
 
 func (v *Varvara) Continue() {
-	atomic.StoreInt32(&v.interrupt, 0)
+	atomic.StoreInt32(&v.paused, 0)
 	select {
 	case v.cont <- true:
 	default:
@@ -217,7 +239,7 @@ func (v *Varvara) Continue() {
 }
 
 func (v *Varvara) Step() {
-	atomic.StoreInt32(&v.interrupt, 1)
+	atomic.StoreInt32(&v.paused, 1)
 	select {
 	case v.cont <- true:
 	default:
@@ -234,11 +256,11 @@ func (v *Varvara) SetDebug(addr uint16) {
 
 func (v *Varvara) Exec(g *GUI) error {
 	for {
-		clear, update := false, true
+		clear, quiet := false, true
 		for {
 			wait := false
 			switch {
-			case atomic.LoadInt32(&v.interrupt) != 0:
+			case atomic.LoadInt32(&v.paused) != 0:
 				v.state(v.m, PauseState)
 				wait = true
 			case uint16(atomic.LoadInt32(&v.breakAddr)) == v.m.PC:
@@ -246,7 +268,10 @@ func (v *Varvara) Exec(g *GUI) error {
 				wait = true
 			case uint16(atomic.LoadInt32(&v.debugAddr)) == v.m.PC:
 				v.state(v.m, DebugState)
-				update = false
+				// Don't send quiet state because we already
+				// sent debug state, and we want the watches to
+				// reflect the debug state.
+				quiet = false
 			}
 			if wait {
 				select {
@@ -254,13 +279,19 @@ func (v *Varvara) Exec(g *GUI) error {
 					return nil
 				case <-v.cont:
 				}
-				clear, update = true, false
+				// Send the clear state after we resume.
+				clear, quiet = true, false
 			}
 			if err := v.m.Exec(); err == uxn.ErrBRK {
 				break
 			} else if err != nil {
+				h, ok := err.(uxn.HaltError)
+				if ok && h.HaltCode == uxn.Debug {
+					v.state(v.m, DebugState)
+					continue
+				}
 				v.state(v.m, HaltState)
-				if h, ok := err.(uxn.HaltError); ok {
+				if ok {
 					if h.HaltCode == uxn.Halt {
 						return nil
 					}
@@ -272,7 +303,7 @@ func (v *Varvara) Exec(g *GUI) error {
 				return err
 			}
 		}
-		if update {
+		if quiet {
 			v.state(v.m, QuietState)
 		} else if clear {
 			v.state(v.m, ClearState)
