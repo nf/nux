@@ -37,11 +37,11 @@ nux debugger commands and keyboard shortcuts:
 		Set the debug point to the given reference, or unset the debug
 		point if no reference is given. When uxn reaches the debug
 		point it updates the debug status lines and any watches.
-	watch[2] <ref>
-		Add a watch for the given reference. If the "watch2" variant is
-		used then the reference is treated as a short, not a byte.
-	rmwatch <ref>
-		Remove any watches for the given reference.
+	watch[2] <ref> ...
+		Add a watch for the given references. If the "watch2" variant
+		is used then each reference is treated as a short, not a byte.
+	rmwatch <ref> ...
+		Remove any watches for the given references.
 	exit  (^C)
 		Exit nux.
 	help
@@ -169,14 +169,24 @@ func NewDebugger() *Debugger {
 		})
 
 	d.input.SetAutocompleteFunc(func(t string) (entries []string) {
-		if cmd, arg, ok := strings.Cut(t, " "); ok {
+		if cmd, ref, ok := strings.Cut(t, " "); ok && ref != "" {
+			others := ""
 			switch cmd {
-			case "b", "break", "d", "debug",
-				"w", "watch", "w2", "watch2", "rmw", "rmwatch":
-				for _, s := range d.symbols().withLabelPrefix(arg) {
-					entries = append(entries, cmd+" "+s.label)
+			case "b", "break", "d", "debug":
+				// Only one arg permitted.
+			case "w", "watch", "w2", "watch2", "rmw", "rmwatch":
+				// Support completing later args.
+				if i := strings.LastIndexByte(ref, ' '); i >= 0 {
+					others = ref[:i+1]
+					ref = ref[i+1:]
 				}
+			default:
+				return
 			}
+			for _, s := range d.symbols().withLabelPrefix(ref) {
+				entries = append(entries, cmd+" "+others+s.label)
+			}
+			return
 		}
 		return
 	})
@@ -220,41 +230,48 @@ func NewDebugger() *Debugger {
 					d.dbg = nil
 					log.Print("cleared debug")
 				default:
-					log.Printf("%s requires reference argument", cmd)
+					log.Printf("%s requires reference argument(s)", cmd)
 				}
 				return
 			}
-			syms := d.symbols().resolve(arg)
-			switch len(syms) {
-			case 0:
-				log.Printf("unknown reference %q", arg)
+			args := strings.Fields(arg)
+			if len(args) > 1 && (cmd == "break" || cmd == "debug") {
+				log.Printf("%s only accepts one argument", cmd)
 				return
-			case 1:
-				// OK
-			default:
-				if cmd == "break" || cmd == "debug" {
-					log.Printf("wildcards not supported for %s", cmd)
-					return
-				}
 			}
-			for i := range syms {
-				s := syms[i]
-				switch cmd {
-				case "break":
-					d.Runner.Debug("break", s.addr)
-					d.brk = &s
-				case "debug":
-					d.Runner.Debug("debug", s.addr)
-					d.dbg = &s
-				case "watch", "watch2":
-					d.addWatch(s, strings.HasSuffix(cmd, "2"))
-				case "rmwatch":
-					if d.rmWatch(s) {
-						log.Printf("watch removed: %s", s)
-					}
+			for _, arg := range args {
+				syms := d.symbols().resolve(arg)
+				switch len(syms) {
+				case 0:
+					log.Printf("unknown reference %q", arg)
 					continue
+				case 1:
+					// OK
+				default:
+					if cmd == "break" || cmd == "debug" {
+						log.Printf("wildcards not supported for %s", cmd)
+						return
+					}
 				}
-				log.Printf("%s set: %s", cmd, s)
+				for i := range syms {
+					s := syms[i]
+					switch cmd {
+					case "break":
+						d.Runner.Debug("break", s.addr)
+						d.brk = &s
+					case "debug":
+						d.Runner.Debug("debug", s.addr)
+						d.dbg = &s
+					case "watch", "watch2":
+						d.addWatch(s, strings.HasSuffix(cmd, "2"))
+					case "rmwatch":
+						if d.rmWatch(s) {
+							log.Printf("watch removed: %s", s)
+						}
+						continue
+					}
+					log.Printf("%s set: %s", cmd, s)
+				}
 			}
 		default:
 			d.Runner.Debug(cmd, 0)
