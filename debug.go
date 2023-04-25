@@ -120,7 +120,8 @@ func NewDebugger() *Debugger {
 			SetWrap(false).
 			SetTextAlign(tview.AlignRight),
 		tick: tview.NewTextView().
-			SetWrap(false),
+			SetWrap(false).
+			SetTextAlign(tview.AlignRight),
 		state: tview.NewTextView().
 			SetWrap(false).
 			SetDynamicColors(true),
@@ -134,8 +135,10 @@ func NewDebugger() *Debugger {
 	}
 	d.Log = d.log
 	d.log.SetChangedFunc(func() { d.app.Draw() })
-	d.watch.SetBackgroundColor(tcell.ColorDarkBlue)
-	d.tick.SetBackgroundColor(tcell.ColorDarkBlue)
+	d.watch.SetBackgroundColor(tcell.ColorDarkBlue).
+		SetBorderPadding(0, 0, 0, 1)
+	d.tick.SetBackgroundColor(tcell.ColorDarkBlue).
+		SetBorderPadding(0, 0, 0, 1)
 	d.state.SetBackgroundColor(tcell.ColorDarkGrey)
 	d.left.
 		AddItem(d.watch, 0, 1, false).
@@ -447,24 +450,24 @@ func (d *Debugger) tickContent() string {
 	var b strings.Builder
 	now := time.Now()
 	if s := d.brk; s != nil {
-		fmt.Fprintf(&b, "brk [%.4x] %s\n", s.addr, s.label)
+		fmt.Fprintf(&b, "%s [%.4x] brk\n", s.label, s.addr)
 	} else {
 		b.WriteByte('\n')
 	}
 	if s := d.dbg; s != nil {
-		fmt.Fprintf(&b, "dbg [%.4x] %s\n", s.addr, s.label)
+		fmt.Fprintf(&b, "%s [%.4x] dbg\n", s.label, s.addr)
 	} else {
 		b.WriteByte('\n')
 	}
 	if age := now.Sub(d.lastState).Truncate(time.Second); age > 0 {
-		fmt.Fprintf(&b, "last state: %s\n", age)
+		fmt.Fprintf(&b, "%s since state\n", age)
 	} else {
 		b.WriteByte('\n')
 	}
-	if d.started.IsZero() {
-		b.WriteString("stopped\n")
+	if !d.started.IsZero() {
+		fmt.Fprintf(&b, "%s since start\n", now.Sub(d.started).Truncate(time.Second))
 	} else {
-		fmt.Fprintf(&b, "running for %s\n", now.Sub(d.started).Truncate(time.Second))
+		b.WriteByte('\n')
 	}
 	return b.String()
 }
