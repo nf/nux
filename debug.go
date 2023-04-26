@@ -57,15 +57,16 @@ type Debugger struct {
 	Runner *varvara.Runner // Must be set before calling Run.
 	Log    io.Writer
 
-	log   *tview.TextView
-	watch *tview.TextView
-	tick  *tview.TextView
-	state *tview.TextView
-	input *tview.InputField
-	right *tview.Flex
-	cols  *tview.Flex
-	rows  *tview.Flex
-	app   *tview.Application
+	log      *tview.TextView
+	watch    *tview.TextView
+	tick     *tview.TextView
+	state    *tview.TextView
+	stateLog *tview.TextView
+	input    *tview.InputField
+	right    *tview.Flex
+	cols     *tview.Flex
+	rows     *tview.Flex
+	app      *tview.Application
 
 	dbg, brk *symbol
 
@@ -96,6 +97,9 @@ func NewDebugger() *Debugger {
 		state: tview.NewTextView().
 			SetWrap(false).
 			SetDynamicColors(true),
+		stateLog: tview.NewTextView().
+			SetMaxLines(300).
+			SetDynamicColors(true),
 		input: tview.NewInputField(),
 		right: tview.NewFlex().
 			SetDirection(tview.FlexRow),
@@ -112,31 +116,44 @@ func NewDebugger() *Debugger {
 	d.right.
 		AddItem(d.watch, 0, 1, false).
 		AddItem(d.tick, 4, 0, false)
-	d.cols.
-		AddItem(d.log, 0, 2, false).
-		AddItem(d.right, 0, 1, false)
 	d.rows.
 		AddItem(d.cols, 0, 1, false).
 		AddItem(d.state, 3, 0, false).
 		AddItem(d.input, 1, 0, true)
-	d.app.
-		SetRoot(d.rows, true).
-		SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
-			switch e.Key() {
-			case tcell.KeyF4:
-				d.Runner.Debug("reset", 0)
-			case tcell.KeyF5:
-				d.Runner.Debug("cont", 0)
-			case tcell.KeyF6:
-				d.Runner.Debug("step", 0)
-			case tcell.KeyF7:
-				d.Runner.Debug("halt", 0)
-			default:
-				return e
-			}
-			return nil
-		})
+	d.app.SetRoot(d.rows, true)
 
+	stateLogVisible := true
+	toggleStateLog := func() {
+		if stateLogVisible {
+			d.cols.Clear().
+				AddItem(d.log, 0, 2, false).
+				AddItem(d.right, 0, 1, false)
+		} else {
+			d.cols.Clear().
+				AddItem(d.stateLog, 0, 2, false).
+				AddItem(d.right, 0, 1, false)
+		}
+		stateLogVisible = !stateLogVisible
+	}
+	toggleStateLog()
+
+	d.app.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
+		switch e.Key() {
+		case tcell.KeyF4:
+			d.Runner.Debug("reset", 0)
+		case tcell.KeyF5:
+			d.Runner.Debug("cont", 0)
+		case tcell.KeyF6:
+			d.Runner.Debug("step", 0)
+		case tcell.KeyF7:
+			d.Runner.Debug("halt", 0)
+		case tcell.KeyF10:
+			toggleStateLog()
+		default:
+			return e
+		}
+		return nil
+	})
 	d.input.SetAutocompleteFunc(func(t string) (entries []string) {
 		if cmd, ref, ok := strings.Cut(t, " "); ok && ref != "" {
 			others := ""
@@ -384,6 +401,7 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 		}
 		d.watch.SetText(watch).ScrollToEnd()
 		if k != varvara.QuietState {
+			d.stateLog.Write([]byte(d.state.GetText(false)))
 			d.state.SetText(state)
 		}
 	})
@@ -440,7 +458,7 @@ func stateContent(syms *symbols, m *uxn.Machine, k varvara.StateKind) string {
 	} else {
 		workOp = op
 	}
-	return fmt.Sprintf("%s %.4x %- 6s %s%s\nws: %v\nrs: %v\n",
+	return fmt.Sprintf("%s %.4x %- 6s %s%s\nws: %v\nrs: %v",
 		kind, m.PC, op, pcSym, sym,
 		formatStack(&m.Work, workOp),
 		formatStack(&m.Ret, retOp))
