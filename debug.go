@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -99,7 +98,8 @@ func NewDebugger() *Debugger {
 			SetDynamicColors(true),
 		stateLog: tview.NewTextView().
 			SetMaxLines(300).
-			SetDynamicColors(true),
+			SetDynamicColors(true).
+			ScrollToEnd(),
 		input: tview.NewInputField(),
 		right: tview.NewFlex().
 			SetDirection(tview.FlexRow),
@@ -516,9 +516,6 @@ func updateWatches(now time.Time, watches []watch, m *uxn.Machine) {
 			w.last = v
 		}
 	}
-	sort.SliceStable(watches, func(i, j int) bool {
-		return watches[i].changed.Before(watches[j].changed)
-	})
 }
 
 func watchContent(watches []watch) string {
