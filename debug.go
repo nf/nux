@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -391,18 +392,20 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 		d.started = time.Time{}
 	}
 	updateWatches(now, d.watches, m)
-	watch := watchContent(m.PC, d.breaks, d.watches)
-	d.mu.Unlock()
 
+	breaks := append([]symbol(nil), d.breaks...)
+	sort.Slice(breaks, func(i, j int) bool { return breaks[i].addr < breaks[j].addr })
 	var (
-		syms   = d.symbols()
-		ops    = opsContent(syms, m)
-		memory = memoryContent(syms, m)
+		ops    = opsText(d.syms, breaks, m)
+		memory = memoryText(d.syms, breaks, m, m.PC)
+		watch  = watchText(m.PC, d.breaks, d.watches)
 		state  string
 	)
 	if k != varvara.ClearState && k != varvara.QuietState {
-		state = stateContent(d.symbols(), m, k)
+		state = stateText(d.syms, m, k)
 	}
+	d.mu.Unlock()
+
 	d.app.QueueUpdate(func() {
 		switch k {
 		case varvara.DebugState, varvara.ClearState:
@@ -428,7 +431,7 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 	})
 }
 
-func stateContent(syms *symbols, m *uxn.Machine, k varvara.StateKind) string {
+func stateText(syms *symbols, m *uxn.Machine, k varvara.StateKind) string {
 	var (
 		op    = uxn.Op(m.Mem[m.PC])
 		pcSym string
@@ -526,7 +529,7 @@ const (
 	totalOps  = 0x40
 )
 
-func opsContent(syms *symbols, m *uxn.Machine) string {
+func opsText(syms *symbols, breaks []symbol, m *uxn.Machine) string {
 	start := m.PC - beforeOps
 	if m.PC < beforeOps {
 		start = 0
@@ -534,6 +537,7 @@ func opsContent(syms *symbols, m *uxn.Machine) string {
 	end := start + totalOps
 
 	opAddr, hasAddr := m.OpAddr(m.PC)
+	opShort := opAddrShort(uxn.Op(m.Mem[m.PC]))
 
 	var s strings.Builder
 	for addr := start; addr < end; addr++ {
@@ -561,10 +565,14 @@ func opsContent(syms *symbols, m *uxn.Machine) string {
 		if len(label) > 16 {
 			label = label[:16]
 		}
+		for len(breaks) > 0 && breaks[0].addr < addr {
+			breaks = breaks[1:]
+		}
+		isBreak := len(breaks) > 0 && breaks[0].addr == addr
 		lineColor := ""
 		if addr == m.PC {
 			lineColor = "-:darkblue"
-		} else if hasAddr && addr == opAddr {
+		} else if hasAddr && (addr == opAddr || opShort && addr-1 == opAddr) {
 			lineColor = "black:aqua"
 		}
 		if lineColor != "" {
@@ -577,12 +585,17 @@ func opsContent(syms *symbols, m *uxn.Machine) string {
 				hexColor = "olive"
 				opColor = "grey"
 			}
+			addrColor := "-"
 			labelColor := "-"
+			if isBreak {
+				addrColor = "yellow"
+				labelColor = "yellow"
+			}
 			if beforeLabel {
 				labelColor = "grey"
 			}
-			fmt.Fprintf(&s, " [%.4x] [%s]%.2x[-] [%s]%- 6s[-] [%s]%- 16s[-]\n",
-				addr, hexColor, b, opColor, op, labelColor, label)
+			fmt.Fprintf(&s, " [%s][%.4x][-] [%s]%.2x[-] [%s]%- 6s[-] [%s]%- 16s[-]\n",
+				addrColor, addr, hexColor, b, opColor, op, labelColor, label)
 		}
 	}
 	return s.String()
@@ -599,20 +612,23 @@ const (
 	totalMem  = 0x200
 )
 
-func memoryContent(syms *symbols, m *uxn.Machine) string {
-	start := m.PC&0xfff0 - beforeMem
-	end := start + totalMem
+func memoryText(syms *symbols, breaks []symbol, m *uxn.Machine, addr uint16) string {
+	var (
+		from = addr&0xfff0 - beforeMem
+		to   = from + totalMem
+		ss   = syms.byAddr
+	)
 
-	opAddr, hasAddr := m.OpAddr(m.PC)
-	ss := syms.byAddr
+	opAddr, hasAddr := m.OpAddr(addr)
+	opShort := opAddrShort(uxn.Op(m.Mem[addr]))
 
 	var (
 		s strings.Builder
 		b = make([]byte, 0x10*3+20)
 	)
-	for addr := start; addr < end; addr++ {
+	for addr := from; addr < to; addr++ {
 		if addr&0xf == 0 {
-			if addr != start {
+			if addr != from {
 				fmt.Fprintf(&s, "\n        %s\n", b)
 				for i := range b {
 					b[i] = ' '
@@ -623,11 +639,21 @@ func memoryContent(syms *symbols, m *uxn.Machine) string {
 		if addr&0xf == 0x8 {
 			fmt.Fprintf(&s, " ")
 		}
+		for len(breaks) > 0 && breaks[0].addr < addr {
+			breaks = breaks[1:]
+		}
+		isBreak := len(breaks) > 0 && breaks[0].addr == addr
 		hexCol := "grey"
 		if addr == m.PC {
-			hexCol = ":darkblue"
-		} else if hasAddr && addr == opAddr {
+			if isBreak {
+				hexCol = "yellow:darkblue"
+			} else {
+				hexCol = ":darkblue"
+			}
+		} else if hasAddr && (addr == opAddr || opShort && addr-1 == opAddr) {
 			hexCol = "black:aqua"
+		} else if isBreak {
+			hexCol = "black:yellow"
 		} else if isMaybeLiteral(m, addr) {
 			hexCol = "olive"
 		}
@@ -673,7 +699,7 @@ func updateWatches(now time.Time, watches []watch, m *uxn.Machine) {
 	}
 }
 
-func watchContent(pc uint16, breaks []symbol, watches []watch) string {
+func watchText(pc uint16, breaks []symbol, watches []watch) string {
 	var b strings.Builder
 	for _, s := range breaks {
 		if b.Len() > 0 {
@@ -718,4 +744,14 @@ func (d *Debugger) tickContent() string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+func opAddrShort(op uxn.Op) bool {
+	if op.Short() {
+		switch op.Base() {
+		case uxn.LDR, uxn.STR, uxn.LDA, uxn.STA, uxn.LDZ, uxn.STZ:
+			return true
+		}
+	}
+	return false
 }
