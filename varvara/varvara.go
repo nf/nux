@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"sync/atomic"
 
 	"github.com/nf/nux/uxn"
@@ -78,13 +79,14 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 		prev := v
 		v = New(rom, r.state, r.stdout, r.stderr)
 		if prev != nil {
-			v.breakAddr, v.debugAddr = prev.breakAddr, prev.debugAddr
+			v.debugAddr = prev.debugAddr
+			v.breakAddrs.Store(prev.breakAddrs.Load())
 		}
 		v.state(v.m, ClearState)
 	}
 	newV()
 	var (
-		g    = NewGUI(v)
+		g    = NewGUI(v, r)
 		exit = make(chan bool)
 	)
 	go func() {
@@ -150,8 +152,8 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 					v.Continue()
 				case "break":
 					v.SetBreak(op.addr)
-				case "debug":
-					v.SetDebug(op.addr)
+				case "rmbreak":
+					v.RemoveBreak(op.addr)
 				case "exit":
 					halt()
 					close(exit)
@@ -185,12 +187,14 @@ type Varvara struct {
 
 	state StateFunc
 
-	paused    int32
-	breakAddr int32
-	debugAddr int32
-	halted    bool
-	halt      chan bool
-	cont      chan bool
+	// Atomics
+	paused     int32
+	breakAddrs atomic.Value // addrSet
+	debugAddr  int32
+
+	halted bool
+	halt   chan bool
+	cont   chan bool
 }
 
 func New(rom []byte, state StateFunc, stdout, stderr io.Writer) *Varvara {
@@ -214,6 +218,7 @@ func New(rom []byte, state StateFunc, stdout, stderr io.Writer) *Varvara {
 	v.scr.setHeight(0x100)
 	v.fileA.main = m.Mem[:]
 	v.fileB.main = m.Mem[:]
+	v.breakAddrs.Store(addrSet(nil))
 	return v
 }
 
@@ -242,32 +247,37 @@ func (v *Varvara) Step() {
 }
 
 func (v *Varvara) SetBreak(addr uint16) {
-	atomic.StoreInt32(&v.breakAddr, int32(addr))
+	s, _ := v.breakAddrs.Load().(addrSet)
+	if s.add(addr) {
+		v.breakAddrs.Store(s)
+	}
 }
 
-func (v *Varvara) SetDebug(addr uint16) {
-	atomic.StoreInt32(&v.debugAddr, int32(addr))
+func (v *Varvara) RemoveBreak(addr uint16) {
+	if addr == 0 {
+		v.breakAddrs.Store(addrSet(nil))
+		return
+	}
+	s, _ := v.breakAddrs.Load().(addrSet)
+	if s.remove(addr) {
+		v.breakAddrs.Store(s)
+	}
 }
 
 func (v *Varvara) Exec(g *GUI) error {
 	defer v.state(v.m, HaltState)
 	for {
-		clear, quiet := false, true
+		clear := false
 		for {
 			wait := false
+			breakAddrs, _ := v.breakAddrs.Load().(addrSet)
 			switch {
+			case breakAddrs.contains(v.m.PC):
+				v.state(v.m, BreakState)
+				wait = true
 			case atomic.LoadInt32(&v.paused) != 0:
 				v.state(v.m, PauseState)
 				wait = true
-			case uint16(atomic.LoadInt32(&v.breakAddr)) == v.m.PC:
-				v.state(v.m, BreakState)
-				wait = true
-			case uint16(atomic.LoadInt32(&v.debugAddr)) == v.m.PC:
-				v.state(v.m, DebugState)
-				// Don't send quiet state because we already
-				// sent debug state, and we want the watches to
-				// reflect the debug state.
-				quiet = false
 			}
 			if wait {
 				select {
@@ -276,7 +286,7 @@ func (v *Varvara) Exec(g *GUI) error {
 				case <-v.cont:
 				}
 				// Send the clear state after we resume.
-				clear, quiet = true, false
+				clear = true
 			}
 			if err := v.m.Exec(); err == uxn.ErrBRK {
 				break
@@ -304,10 +314,10 @@ func (v *Varvara) Exec(g *GUI) error {
 				return err
 			}
 		}
-		if quiet {
-			v.state(v.m, QuietState)
-		} else if clear {
+		if clear {
 			v.state(v.m, ClearState)
+		} else {
+			v.state(v.m, QuietState)
 		}
 
 		var vector uint16
@@ -416,4 +426,38 @@ func (m *deviceMem) setShortChanged(addr byte, v uint16) bool {
 
 func short(hi, lo byte) uint16 {
 	return uint16(hi)<<8 + uint16(lo)
+}
+
+type addrSet []uint16
+
+func (s *addrSet) add(addr uint16) bool {
+	if s.contains(addr) {
+		return false
+	}
+	*s = append(*s, addr)
+	sort.Slice(*s, func(i, j int) bool { return (*s)[i] < (*s)[j] })
+	return true
+}
+
+func (s *addrSet) remove(addr uint16) bool {
+	for i, a := range *s {
+		if a == addr {
+			*s = append((*s)[:i], (*s)[i+1:]...)
+			return true
+		} else if a > addr {
+			return false
+		}
+	}
+	return false
+}
+
+func (s addrSet) contains(addr uint16) bool {
+	for _, a := range s {
+		if a == addr {
+			return true
+		} else if a > addr {
+			return false
+		}
+	}
+	return false
 }

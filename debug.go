@@ -28,14 +28,11 @@ nux debugger commands and keyboard shortcuts:
 		Pause uxn (if not already paused) and execute one instruction.
 	halt  (F7)
 		Halt the uxn program.
-	break [ref]
-		Set the break point to the given reference (memory address or
-		label), or unset the break point if no reference is given.
-		When uxn reaches the break point it pauses execution.
-	debug [ref]
-		Set the debug point to the given reference, or unset the debug
-		point if no reference is given. When uxn reaches the debug
-		point it updates the debug status lines and any watches.
+	break <ref> ...
+		Set break points at the given references (memory address or
+		label). When uxn reaches the break point it pauses execution.
+	rmbreak <ref> ...
+		Unset the break points at the given references.
 	watch[2] <ref> ...
 		Add a watch for the given references. If the "watch2" variant
 		is used then each reference is treated as a short, not a byte.
@@ -49,7 +46,7 @@ nux debugger commands and keyboard shortcuts:
 Refrences may use a "*" suffix to select all labels that match a prefix.
 
 Commands may be abbreviated using just their first character ("r" for "reset",
-etc), with the exceptions of "w2" for "watch2" and "rmw" for "rmwatch".
+etc), with the exceptions of rmb/rmbreak, w2/watch2, and rmw/rmwatch.
 `
 
 type Debugger struct {
@@ -67,10 +64,9 @@ type Debugger struct {
 	rows     *tview.Flex
 	app      *tview.Application
 
-	dbg, brk *symbol
-
 	mu        sync.Mutex
 	syms      *symbols
+	breaks    []symbol
 	watches   []watch
 	started   time.Time
 	lastState time.Time
@@ -89,6 +85,7 @@ func NewDebugger() *Debugger {
 			SetMaxLines(1000),
 		watch: tview.NewTextView().
 			SetWrap(false).
+			SetDynamicColors(true).
 			SetTextAlign(tview.AlignRight),
 		tick: tview.NewTextView().
 			SetWrap(false).
@@ -115,7 +112,7 @@ func NewDebugger() *Debugger {
 	d.state.SetBackgroundColor(tcell.ColorDarkGrey)
 	d.right.
 		AddItem(d.watch, 0, 1, false).
-		AddItem(d.tick, 4, 0, false)
+		AddItem(d.tick, 2, 0, false)
 	d.rows.
 		AddItem(d.cols, 0, 1, false).
 		AddItem(d.state, 3, 0, false).
@@ -158,9 +155,10 @@ func NewDebugger() *Debugger {
 		if cmd, ref, ok := strings.Cut(t, " "); ok && ref != "" {
 			others := ""
 			switch cmd {
-			case "b", "break", "d", "debug":
+			case "d", "debug":
 				// Only one arg permitted.
-			case "w", "watch", "w2", "watch2", "rmw", "rmwatch":
+			case "b", "break", "rmb", "rmbreak",
+				"w", "watch", "w2", "watch2", "rmw", "rmwatch":
 				// Support completing later args.
 				if i := strings.LastIndexByte(ref, ' '); i >= 0 {
 					others = ref[:i+1]
@@ -204,50 +202,26 @@ func NewDebugger() *Debugger {
 		case "help":
 			log.Print(helpText)
 			return
-		case "break", "debug", "watch", "watch2", "rmwatch":
-			if arg == "" {
-				switch cmd {
-				case "break":
-					d.Runner.Debug("break", 0)
-					d.brk = nil
-					log.Print("cleared break")
-				case "debug":
-					d.Runner.Debug("debug", 0)
-					d.dbg = nil
-					log.Print("cleared debug")
-				default:
-					log.Printf("%s requires reference argument(s)", cmd)
-				}
-				return
-			}
+		case "break", "rmbreak", "watch", "watch2", "rmwatch":
 			args := strings.Fields(arg)
-			if len(args) > 1 && (cmd == "break" || cmd == "debug") {
-				log.Printf("%s only accepts one argument", cmd)
-				return
-			}
 			for _, arg := range args {
 				syms := d.symbols().resolve(arg)
-				switch len(syms) {
-				case 0:
+				if len(syms) == 0 {
 					log.Printf("unknown reference %q", arg)
 					continue
-				case 1:
-					// OK
-				default:
-					if cmd == "break" || cmd == "debug" {
-						log.Printf("wildcards not supported for %s", cmd)
-						return
-					}
 				}
 				for i := range syms {
 					s := syms[i]
 					switch cmd {
 					case "break":
 						d.Runner.Debug("break", s.addr)
-						d.brk = &s
-					case "debug":
-						d.Runner.Debug("debug", s.addr)
-						d.dbg = &s
+						d.addBreak(s)
+					case "rmbreak":
+						d.Runner.Debug("rmbreak", s.addr)
+						if d.rmBreak(s) {
+							log.Printf("break removed: %s", s)
+						}
+						continue
 					case "watch", "watch2":
 						d.addWatch(s, strings.HasSuffix(cmd, "2"))
 					case "rmwatch":
@@ -274,7 +248,7 @@ func parseCommand(in string) (string, bool) {
 		"s": "step", "step": "step",
 		"c": "cont", "cont": "cont",
 		"b": "break", "break": "break",
-		"d": "debug", "debug": "debug",
+		"rmb": "rmbreak", "rmbreak": "rmbreak",
 		"w": "watch", "watch": "watch",
 		"w2": "watch2", "watch2": "watch2",
 		"rmw": "rmwatch", "rmwatch": "rmwatch",
@@ -282,6 +256,25 @@ func parseCommand(in string) (string, bool) {
 		return out, true
 	}
 	return in, false
+}
+
+func (d *Debugger) addBreak(s symbol) {
+	d.rmBreak(s)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.breaks = append(d.breaks, s)
+}
+
+func (d *Debugger) rmBreak(s symbol) (removed bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for i, v := range d.breaks {
+		if v == s {
+			d.breaks = append(d.breaks[:i], d.breaks[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 func (d *Debugger) addWatch(s symbol, short bool) {
@@ -331,23 +324,20 @@ func (d *Debugger) SetSymbols(s *symbols) {
 		w.addr = ss[0].addr
 		i++
 	}
-	// Adjust break and debug point if they have changed.
-	if bs := d.brk; bs != nil && bs.label != "" {
-		if ss := s.withLabel(bs.label); len(ss) == 0 {
-			d.brk = nil
-			d.Runner.Debug("break", 0)
-		} else if ss[0].addr != bs.addr {
-			bs.addr = ss[0].addr
-			d.Runner.Debug("break", bs.addr)
+	// Adjust break points if they have changed.
+	for i := len(d.breaks) - 1; i >= 0; i-- {
+		bs := &d.breaks[i]
+		if bs.label == "" {
+			// Can't rewrite unlabeled breaks.
+			continue
 		}
-	}
-	if ds := d.dbg; ds != nil && ds.label != "" {
-		if ss := s.withLabel(ds.label); len(ss) == 0 {
-			d.dbg = nil
-			d.Runner.Debug("debug", 0)
-		} else if ss[0].addr != ds.addr {
-			ds.addr = ss[0].addr
-			d.Runner.Debug("debug", ds.addr)
+		if ss := s.withLabel(bs.label); len(ss) == 0 {
+			d.Runner.Debug("rmbreak", bs.addr)
+			d.breaks = append(d.breaks[:i], d.breaks[i+1:]...)
+		} else if ss[0].addr != bs.addr {
+			d.Runner.Debug("break", ss[0].addr)
+			d.Runner.Debug("rmbreak", bs.addr)
+			bs.addr = ss[0].addr
 		}
 	}
 }
@@ -377,7 +367,7 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 		d.started = time.Time{}
 	}
 	updateWatches(now, d.watches, m)
-	watch := watchContent(d.watches)
+	watch := watchContent(m.PC, d.breaks, d.watches)
 	d.mu.Unlock()
 
 	var state string
@@ -501,7 +491,6 @@ func formatStackVal(i int, pre, post *string, v uxn.StackVal, color string) {
 }
 
 func updateWatches(now time.Time, watches []watch, m *uxn.Machine) {
-	now = now.Truncate(10 * time.Second) // Prevent jumpiness.
 	for i := range watches {
 		w := &watches[i]
 		var v uint16
@@ -518,10 +507,22 @@ func updateWatches(now time.Time, watches []watch, m *uxn.Machine) {
 	}
 }
 
-func watchContent(watches []watch) string {
+func watchContent(pc uint16, breaks []symbol, watches []watch) string {
 	var b strings.Builder
-	for i, w := range watches {
-		if i > 0 {
+	for _, s := range breaks {
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		if pc == s.addr {
+			fmt.Fprint(&b, "[yellow]")
+		}
+		fmt.Fprintf(&b, "%s [%.4x] brk!", s.label, s.addr)
+		if pc == s.addr {
+			fmt.Fprint(&b, "[-]")
+		}
+	}
+	for _, w := range watches {
+		if b.Len() > 0 {
 			b.WriteByte('\n')
 		}
 		fmt.Fprintf(&b, "%s [%.4x] ", w.label, w.addr)
@@ -540,16 +541,6 @@ func (d *Debugger) tickContent() string {
 
 	var b strings.Builder
 	now := time.Now()
-	if s := d.brk; s != nil {
-		fmt.Fprintf(&b, "%s [%.4x] brk\n", s.label, s.addr)
-	} else {
-		b.WriteByte('\n')
-	}
-	if s := d.dbg; s != nil {
-		fmt.Fprintf(&b, "%s [%.4x] dbg\n", s.label, s.addr)
-	} else {
-		b.WriteByte('\n')
-	}
 	if age := now.Sub(d.lastState).Truncate(time.Second); age > 0 {
 		fmt.Fprintf(&b, "%s since state\n", age)
 	} else {

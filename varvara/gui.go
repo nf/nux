@@ -21,12 +21,17 @@ import (
 
 const debugGUI = false
 
-func NewGUI(v *Varvara) *GUI {
+type Debugger interface {
+	Debug(cmd string, addr uint16)
+}
+
+func NewGUI(v *Varvara, d Debugger) *GUI {
 	up, done := make(chan bool), make(chan bool)
 	return &GUI{
 		Update: up, doUpdate: up,
 		UpdateDone: done, updateDone: done,
-		v: v,
+		v:     v,
+		debug: d,
 	}
 }
 
@@ -39,6 +44,8 @@ type GUI struct {
 
 	v    *Varvara // only touch this in the update method!
 	newV *Varvara // set after Swap, unset once swap happens
+
+	debug Debugger
 
 	ctrl  ControllerState
 	mouse MouseState
@@ -257,6 +264,22 @@ func paintTransform(dst, src image.Rectangle) f64.Aff3 {
 }
 
 func (g *GUI) handleKey(e key.Event) {
+	if e.Direction == key.DirPress {
+		switch e.Code {
+		case key.CodeF4:
+			g.debug.Debug("reset", 0)
+			return
+		case key.CodeF5:
+			g.debug.Debug("cont", 0)
+			return
+		case key.CodeF6:
+			g.debug.Debug("step", 0)
+			return
+		case key.CodeF7:
+			g.debug.Debug("halt", 0)
+			return
+		}
+	}
 	var (
 		s = &g.ctrl
 		b = e.Direction == key.DirPress || e.Direction == 10
