@@ -55,10 +55,11 @@ type Debugger struct {
 
 	log      *tview.TextView
 	watch    *tview.TextView
+	ops      *tview.TextView
 	tick     *tview.TextView
 	state    *tview.TextView
 	stateLog *tview.TextView
-	ops      *tview.TextView
+	memory   *tview.TextView
 	input    *tview.InputField
 	right    *tview.Flex
 	cols     *tview.Flex
@@ -89,6 +90,9 @@ func NewDebugger() *Debugger {
 			SetWrap(false).
 			SetDynamicColors(true).
 			SetTextAlign(tview.AlignRight),
+		ops: tview.NewTextView().
+			SetWrap(false).
+			SetDynamicColors(true),
 		tick: tview.NewTextView().
 			SetWrap(false).
 			SetTextAlign(tview.AlignRight),
@@ -99,7 +103,7 @@ func NewDebugger() *Debugger {
 			SetMaxLines(300).
 			ScrollToEnd().
 			SetDynamicColors(true),
-		ops: tview.NewTextView().
+		memory: tview.NewTextView().
 			SetWrap(false).
 			SetDynamicColors(true),
 		input: tview.NewInputField(),
@@ -127,7 +131,7 @@ func NewDebugger() *Debugger {
 	const (
 		logVisible = iota
 		stateLogVisible
-		opsVisible
+		memoryVisible
 	)
 	setMainWindow := func(mode int) {
 		switch mode {
@@ -140,6 +144,11 @@ func NewDebugger() *Debugger {
 			d.cols.Clear().
 				AddItem(d.stateLog, 0, 1, false).
 				AddItem(d.ops, 35, 0, false).
+				AddItem(d.right, 25, 0, false)
+		case memoryVisible:
+			d.cols.Clear().
+				AddItem(d.ops, 35, 0, false).
+				AddItem(d.memory, 0, 1, false).
 				AddItem(d.right, 25, 0, false)
 		}
 	}
@@ -160,7 +169,7 @@ func NewDebugger() *Debugger {
 		case tcell.KeyF9:
 			setMainWindow(stateLogVisible)
 		case tcell.KeyF10:
-			setMainWindow(opsVisible)
+			setMainWindow(memoryVisible)
 		default:
 			return e
 		}
@@ -385,11 +394,15 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 	watch := watchContent(m.PC, d.breaks, d.watches)
 	d.mu.Unlock()
 
-	var state string
+	var (
+		syms   = d.symbols()
+		ops    = opsContent(syms, m)
+		memory = memoryContent(syms, m)
+		state  string
+	)
 	if k != varvara.ClearState && k != varvara.QuietState {
 		state = stateContent(d.symbols(), m, k)
 	}
-	ops := opsContent(d.symbols(), m)
 	d.app.QueueUpdate(func() {
 		switch k {
 		case varvara.DebugState, varvara.ClearState:
@@ -406,10 +419,8 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 			d.state.SetBackgroundColor(tcell.ColorDarkRed)
 		}
 		d.watch.SetText(watch).ScrollToEnd()
-		d.ops.SetText(ops)
-		if _, _, _, h := d.ops.GetRect(); h < beforeOps+afterOps {
-			d.ops.ScrollTo(((beforeOps+afterOps)-h)/3, 0)
-		}
+		d.ops.SetText(ops).ScrollToBeginning()
+		d.memory.SetText(memory).ScrollToBeginning()
 		if k != varvara.QuietState {
 			d.stateLog.Write([]byte(d.state.GetText(false)))
 			d.state.SetText(state)
@@ -511,8 +522,8 @@ func formatStackVal(i int, pre, post *string, v uxn.StackVal, color string) {
 }
 
 const (
-	beforeOps = 0x18
-	afterOps  = 0x30
+	beforeOps = 0x10
+	totalOps  = 0x40
 )
 
 func opsContent(syms *symbols, m *uxn.Machine) string {
@@ -520,7 +531,7 @@ func opsContent(syms *symbols, m *uxn.Machine) string {
 	if m.PC < beforeOps {
 		start = 0
 	}
-	end := m.PC + afterOps
+	end := start + totalOps
 
 	opAddr, hasAddr := m.OpAddr(m.PC)
 
@@ -560,16 +571,18 @@ func opsContent(syms *symbols, m *uxn.Machine) string {
 			fmt.Fprintf(&s, "[%s] [%.4x] %.2x %- 6s %- 16s [-:-]\n",
 				lineColor, addr, b, op, label)
 		} else {
+			hexColor := "grey"
 			opColor := "-"
 			if isMaybeLiteral(m, addr) {
+				hexColor = "olive"
 				opColor = "grey"
 			}
 			labelColor := "-"
 			if beforeLabel {
 				labelColor = "grey"
 			}
-			fmt.Fprintf(&s, " [%.4x] %.2x [%s]%- 6s[-] [%s]%- 16s[-]\n",
-				addr, b, opColor, op, labelColor, label)
+			fmt.Fprintf(&s, " [%.4x] [%s]%.2x[-] [%s]%- 6s[-] [%s]%- 16s[-]\n",
+				addr, hexColor, b, opColor, op, labelColor, label)
 		}
 	}
 	return s.String()
@@ -579,6 +592,68 @@ func isMaybeLiteral(m *uxn.Machine, addr uint16) bool {
 	return uxn.Op(m.Mem[addr-1]) == uxn.LIT ||
 		uxn.Op(m.Mem[addr-1]) == uxn.LIT2 ||
 		uxn.Op(m.Mem[addr-2]) == uxn.LIT2
+}
+
+const (
+	beforeMem = 0x080
+	totalMem  = 0x200
+)
+
+func memoryContent(syms *symbols, m *uxn.Machine) string {
+	start := m.PC&0xfff0 - beforeMem
+	end := start + totalMem
+
+	opAddr, hasAddr := m.OpAddr(m.PC)
+	ss := syms.byAddr
+
+	var (
+		s strings.Builder
+		b = make([]byte, 0x10*3+20)
+	)
+	for addr := start; addr < end; addr++ {
+		if addr&0xf == 0 {
+			if addr != start {
+				fmt.Fprintf(&s, "\n        %s\n", b)
+				for i := range b {
+					b[i] = ' '
+				}
+			}
+			fmt.Fprintf(&s, " [%.4x]", addr)
+		}
+		if addr&0xf == 0x8 {
+			fmt.Fprintf(&s, " ")
+		}
+		hexCol := "grey"
+		if addr == m.PC {
+			hexCol = ":darkblue"
+		} else if hasAddr && addr == opAddr {
+			hexCol = "black:aqua"
+		} else if isMaybeLiteral(m, addr) {
+			hexCol = "olive"
+		}
+		if hexCol == "" {
+			fmt.Fprintf(&s, " %.2x", m.Mem[addr])
+		} else {
+			fmt.Fprintf(&s, " [%s]%.2x[-:-]", hexCol, m.Mem[addr])
+		}
+		for len(ss) > 0 && ss[0].addr < addr {
+			ss = ss[1:]
+		}
+		if len(ss) > 0 && ss[0].addr == addr {
+			i := addr & 0xf * 3
+			if addr&0xf >= 0x8 {
+				i++
+			}
+			label, child, ok := strings.Cut(ss[0].label, "/")
+			if ok {
+				label = "&" + child
+			} else {
+				label = "@" + label
+			}
+			copy(b[i:], label+strings.Repeat(" ", 20))
+		}
+	}
+	return s.String()
 }
 
 func updateWatches(now time.Time, watches []watch, m *uxn.Machine) {
