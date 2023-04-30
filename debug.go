@@ -58,6 +58,7 @@ type Debugger struct {
 	tick     *tview.TextView
 	state    *tview.TextView
 	stateLog *tview.TextView
+	ops      *tview.TextView
 	input    *tview.InputField
 	right    *tview.Flex
 	cols     *tview.Flex
@@ -82,7 +83,8 @@ type watch struct {
 func NewDebugger() *Debugger {
 	d := &Debugger{
 		log: tview.NewTextView().
-			SetMaxLines(1000),
+			SetMaxLines(1000).
+			ScrollToEnd(),
 		watch: tview.NewTextView().
 			SetWrap(false).
 			SetDynamicColors(true).
@@ -95,8 +97,11 @@ func NewDebugger() *Debugger {
 			SetDynamicColors(true),
 		stateLog: tview.NewTextView().
 			SetMaxLines(300).
-			SetDynamicColors(true).
-			ScrollToEnd(),
+			ScrollToEnd().
+			SetDynamicColors(true),
+		ops: tview.NewTextView().
+			SetWrap(false).
+			SetDynamicColors(true),
 		input: tview.NewInputField(),
 		right: tview.NewFlex().
 			SetDirection(tview.FlexRow),
@@ -119,20 +124,26 @@ func NewDebugger() *Debugger {
 		AddItem(d.input, 1, 0, true)
 	d.app.SetRoot(d.rows, true)
 
-	stateLogVisible := true
-	toggleStateLog := func() {
-		if stateLogVisible {
+	const (
+		logVisible = iota
+		stateLogVisible
+		opsVisible
+	)
+	setMainWindow := func(mode int) {
+		switch mode {
+		case logVisible:
 			d.cols.Clear().
-				AddItem(d.log, 0, 2, false).
-				AddItem(d.right, 0, 1, false)
-		} else {
+				AddItem(d.ops, 35, 0, false).
+				AddItem(d.log, 0, 1, false).
+				AddItem(d.right, 25, 0, false)
+		case stateLogVisible:
 			d.cols.Clear().
-				AddItem(d.stateLog, 0, 2, false).
-				AddItem(d.right, 0, 1, false)
+				AddItem(d.stateLog, 0, 1, false).
+				AddItem(d.ops, 35, 0, false).
+				AddItem(d.right, 25, 0, false)
 		}
-		stateLogVisible = !stateLogVisible
 	}
-	toggleStateLog()
+	setMainWindow(logVisible)
 
 	d.app.SetInputCapture(func(e *tcell.EventKey) *tcell.EventKey {
 		switch e.Key() {
@@ -144,8 +155,12 @@ func NewDebugger() *Debugger {
 			d.Runner.Debug("step", 0)
 		case tcell.KeyF7:
 			d.Runner.Debug("halt", 0)
+		case tcell.KeyF8:
+			setMainWindow(logVisible)
+		case tcell.KeyF9:
+			setMainWindow(stateLogVisible)
 		case tcell.KeyF10:
-			toggleStateLog()
+			setMainWindow(opsVisible)
 		default:
 			return e
 		}
@@ -374,6 +389,7 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 	if k != varvara.ClearState && k != varvara.QuietState {
 		state = stateContent(d.symbols(), m, k)
 	}
+	ops := opsContent(d.symbols(), m)
 	d.app.QueueUpdate(func() {
 		switch k {
 		case varvara.DebugState, varvara.ClearState:
@@ -390,6 +406,10 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 			d.state.SetBackgroundColor(tcell.ColorDarkRed)
 		}
 		d.watch.SetText(watch).ScrollToEnd()
+		d.ops.SetText(ops)
+		if _, _, _, h := d.ops.GetRect(); h < beforeOps+afterOps {
+			d.ops.ScrollTo(((beforeOps+afterOps)-h)/3, 0)
+		}
 		if k != varvara.QuietState {
 			d.stateLog.Write([]byte(d.state.GetText(false)))
 			d.state.SetText(state)
@@ -488,6 +508,77 @@ func formatStackVal(i int, pre, post *string, v uxn.StackVal, color string) {
 	if v.Index > 0 && (v.Index == i || v.Index-(v.Size-1) == i) {
 		*pre, *post = color, "[-:-]"
 	}
+}
+
+const (
+	beforeOps = 0x18
+	afterOps  = 0x30
+)
+
+func opsContent(syms *symbols, m *uxn.Machine) string {
+	start := m.PC - beforeOps
+	if m.PC < beforeOps {
+		start = 0
+	}
+	end := m.PC + afterOps
+
+	opAddr, hasAddr := m.OpAddr(m.PC)
+
+	var s strings.Builder
+	for addr := start; addr < end; addr++ {
+		b := m.Mem[addr]
+		op := uxn.Op(b)
+		label := ""
+		beforeLabel := false
+		ss := syms.forAddr(addr)
+		if len(ss) == 0 && addr == start {
+			beforeLabel = true
+			ss = syms.beforeAddr(addr)
+		}
+		for _, s := range ss {
+			if len(label) > 0 {
+				label += " "
+			}
+			if !beforeLabel {
+				if _, child, ok := strings.Cut(s.label, "/"); ok {
+					label += "&" + child
+					continue
+				}
+			}
+			label += s.label
+		}
+		if len(label) > 16 {
+			label = label[:16]
+		}
+		lineColor := ""
+		if addr == m.PC {
+			lineColor = "-:darkblue"
+		} else if hasAddr && addr == opAddr {
+			lineColor = "black:aqua"
+		}
+		if lineColor != "" {
+			fmt.Fprintf(&s, "[%s] [%.4x] %.2x %- 6s %- 16s [-:-]\n",
+				lineColor, addr, b, op, label)
+		} else {
+			opColor := "-"
+			if isMaybeLiteral(m, addr) {
+				opColor = "grey"
+			}
+			labelColor := "-"
+			if beforeLabel {
+				labelColor = "grey"
+			}
+			fmt.Fprintf(&s, " [%.4x] %.2x [%s]%- 6s[-] [%s]%- 16s[-]\n",
+				addr, b, opColor, op, labelColor, label)
+		}
+	}
+	return s.String()
+}
+
+func isMaybeLiteral(m *uxn.Machine, addr uint16) bool {
+	return uxn.Op(m.Mem[addr-1]) == uxn.LIT ||
+		uxn.Op(m.Mem[addr-1]) == uxn.LIT2 ||
+		uxn.Op(m.Mem[addr-2]) == uxn.LIT2
 }
 
 func updateWatches(now time.Time, watches []watch, m *uxn.Machine) {

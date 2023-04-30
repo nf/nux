@@ -32,6 +32,23 @@ func (s *symbols) forAddr(addr uint16) []symbol {
 	return ss[i:j]
 }
 
+func (s *symbols) beforeAddr(addr uint16) []symbol {
+	ss := s.byAddr
+	i := sort.Search(len(ss), func(i int) bool {
+		return ss[i].addr >= addr
+	})
+	if i == 0 {
+		return nil
+	}
+	j := i - 1
+	for prev := ss[j].addr; j > 0; j-- {
+		if ss[j-1].addr != prev {
+			break
+		}
+	}
+	return ss[j:i]
+}
+
 func (s *symbols) withLabel(label string) []symbol {
 	ss := s.byLabel
 	i := sort.Search(len(ss), func(i int) bool {
