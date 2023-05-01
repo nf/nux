@@ -39,6 +39,9 @@ nux debugger commands and keyboard shortcuts:
 		is used then each reference is treated as a short, not a byte.
 	rmwatch <ref> ...
 		Remove any watches for the given references.
+	mem [ref]
+		View memory at the given reference,
+		or PC if not reference given.
 	exit  (^C)
 		Exit nux.
 	help
@@ -48,6 +51,9 @@ Refrences may use a "*" suffix to select all labels that match a prefix.
 
 Commands may be abbreviated using just their first character ("r" for "reset",
 etc), with the exceptions of rmb/rmbreak, w2/watch2, and rmw/rmwatch.
+
+F8, F9, and F10 switch the main panel view between standard output (the
+default), the state log, and the memory viewer.
 `
 
 type Debugger struct {
@@ -73,6 +79,7 @@ type Debugger struct {
 	watches   []watch
 	started   time.Time
 	lastState time.Time
+	memAddr   *uint16
 }
 
 type watch struct {
@@ -180,7 +187,7 @@ func NewDebugger() *Debugger {
 		if cmd, ref, ok := strings.Cut(t, " "); ok && ref != "" {
 			others := ""
 			switch cmd {
-			case "d", "debug":
+			case "m", "mem":
 				// Only one arg permitted.
 			case "b", "break", "rmb", "rmbreak",
 				"w", "watch", "w2", "watch2", "rmw", "rmwatch":
@@ -223,10 +230,32 @@ func NewDebugger() *Debugger {
 		switch cmd {
 		case "exit":
 			d.app.Stop()
-			return
 		case "help":
 			log.Print(helpText)
-			return
+		case "mem":
+			args := strings.Fields(arg)
+			switch len(args) {
+			case 0:
+				d.mu.Lock()
+				d.memAddr = nil
+				d.mu.Unlock()
+				setMainWindow(memoryVisible)
+			case 1:
+				switch syms := d.symbols().resolve(arg); len(syms) {
+				case 0:
+					log.Printf("unknown reference %q", arg)
+				case 1:
+					addr := syms[0].addr
+					d.mu.Lock()
+					d.memAddr = &addr
+					d.mu.Unlock()
+					setMainWindow(memoryVisible)
+				default:
+					log.Printf("mem does not accept wildcards")
+				}
+			default:
+				log.Printf("mem only takes one argument")
+			}
 		case "break", "rmbreak", "watch", "watch2", "rmwatch":
 			args := strings.Fields(arg)
 			for _, arg := range args {
@@ -277,6 +306,7 @@ func parseCommand(in string) (string, bool) {
 		"w": "watch", "watch": "watch",
 		"w2": "watch2", "watch2": "watch2",
 		"rmw": "rmwatch", "rmwatch": "rmwatch",
+		"m": "mem", "mem": "mem",
 	}[in]; ok {
 		return out, true
 	}
@@ -395,9 +425,13 @@ func (d *Debugger) StateFunc(m *uxn.Machine, k varvara.StateKind) {
 
 	breaks := append([]symbol(nil), d.breaks...)
 	sort.Slice(breaks, func(i, j int) bool { return breaks[i].addr < breaks[j].addr })
+	memAddr := m.PC
+	if d.memAddr != nil {
+		memAddr = *d.memAddr
+	}
 	var (
 		ops    = opsText(d.syms, breaks, m)
-		memory = memoryText(d.syms, breaks, m, m.PC)
+		memory = memoryText(d.syms, breaks, m, memAddr)
 		watch  = watchText(m.PC, d.breaks, d.watches)
 		state  string
 	)
@@ -612,15 +646,15 @@ const (
 	totalMem  = 0x200
 )
 
-func memoryText(syms *symbols, breaks []symbol, m *uxn.Machine, addr uint16) string {
+func memoryText(syms *symbols, breaks []symbol, m *uxn.Machine, targetAddr uint16) string {
 	var (
-		from = addr&0xfff0 - beforeMem
+		from = targetAddr&0xfff0 - beforeMem
 		to   = from + totalMem
 		ss   = syms.byAddr
 	)
 
-	opAddr, hasAddr := m.OpAddr(addr)
-	opShort := opAddrShort(uxn.Op(m.Mem[addr]))
+	opAddr, hasAddr := m.OpAddr(targetAddr)
+	opShort := opAddrShort(uxn.Op(m.Mem[targetAddr]))
 
 	var (
 		s strings.Builder
@@ -650,10 +684,16 @@ func memoryText(syms *symbols, breaks []symbol, m *uxn.Machine, addr uint16) str
 			} else {
 				hexCol = ":darkblue"
 			}
+		} else if addr == targetAddr {
+			hexCol = "black:fuchsia"
 		} else if hasAddr && (addr == opAddr || opShort && addr-1 == opAddr) {
 			hexCol = "black:aqua"
 		} else if isBreak {
 			hexCol = "black:yellow"
+		} else if targetAddr != m.PC {
+			if m.Mem[addr] != 0 {
+				hexCol = "olive"
+			}
 		} else if isMaybeLiteral(m, addr) {
 			hexCol = "olive"
 		}
