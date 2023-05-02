@@ -74,11 +74,17 @@ func (m *Machine) Exec() (err error) {
 		return nil
 	}
 
-	var st *stackWrapper
+	var (
+		st   *stackWrapper
+		keep = op.Keep()
+	)
+	if keep && (op.Base() == POP || op.Base() == NIP) {
+		keep = false
+	}
 	if op.Return() {
-		st = m.Ret.keep(op.Keep())
+		st = m.Ret.keep(keep)
 	} else {
-		st = m.Work.keep(op.Keep())
+		st = m.Work.keep(keep)
 	}
 
 	switch op.Base() {
@@ -196,9 +202,15 @@ func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
 		s.Push(s.Pop() + 1)
 	case POP:
 		s.Pop()
+		if op.Keep() {
+			s.Push(0)
+		}
 	case NIP:
 		v := s.Pop()
 		s.Pop()
+		if op.Keep() {
+			s.Push(0)
+		}
 		s.Push(v)
 	case SWP:
 		b, a := s.Pop(), s.Pop()

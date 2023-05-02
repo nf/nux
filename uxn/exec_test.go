@@ -45,13 +45,20 @@ func TestExec(t *testing.T) {
 		c(INC2k).work(0, 0xff).want().work(0, 0xff, 1, 0),
 
 		c(POP).work(1, 2).want().work(1),
-		c(POPk).work(1, 2).want().work(1, 2),
+		c(POPk).work(1).want().work(0),
+		c(POPk).work(1, 2).want().work(1, 0),
 		c(POP2).work(1, 2),
-		c(POP2k).work(1, 2).want().work(1, 2),
+		c(POP2k).work(1, 2).want().work(0, 0),
+		c(POP2k).work(1, 2, 3, 4).want().work(1, 2, 0, 0),
 
 		c(NIP).work(1, 2).want().work(2),
+		c(NIPk).work(1, 2).want().work(0, 2),
 		c(NIP2).work(1, 2, 3, 4).want().work(3, 4),
-		c(NIP2k).work(1, 2, 3, 4).want().work(1, 2, 3, 4, 3, 4),
+		c(NIP2k).work(1, 2, 3, 4).want().work(0, 0, 3, 4),
+		c(NIPk).work(1).want().work().
+			error(HaltError{HaltCode: Underflow, Op: NIPk, Addr: 0x100}),
+		c(NIP2k).work(1, 2).want().work().
+			error(HaltError{HaltCode: Underflow, Op: NIP2k, Addr: 0x100}),
 
 		c(SWP).work(1, 2).want().work(2, 1),
 		c(SWPk).work(1, 2).want().work(1, 2, 2, 1),
@@ -176,7 +183,7 @@ func TestExec(t *testing.T) {
 			error(HaltError{HaltCode: Underflow, Op: POP, Addr: 0x100}),
 		c(POP2).work(42).want().work().
 			error(HaltError{HaltCode: Underflow, Op: POP2, Addr: 0x100}),
-		c(POP2k).work(42).want().work(42).
+		c(POP2k).work(42).want().work().
 			error(HaltError{HaltCode: Underflow, Op: POP2k, Addr: 0x100}),
 		c(DUP).work(bytes.Repeat([]byte{7}, 255)...).want().
 			work(bytes.Repeat([]byte{7}, 255)...).
