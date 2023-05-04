@@ -97,10 +97,11 @@ func (s *Screen) myImageFor(op drawOp) (*image.RGBA, [4]color.RGBA) {
 }
 
 func (s *Screen) drawPixel(op drawOp) {
-	var (
-		m, theme = s.myImageFor(op)
-		c        = theme[op.Color()]
-	)
+	m, theme := s.myImageFor(op)
+	c := transparent
+	if oc := op.Color(); oc > 0 || !op.Foreground() {
+		c = theme[oc]
+	}
 	if op.Fill() {
 		dx, dy := 1, 1
 		if op.FlipX() {
