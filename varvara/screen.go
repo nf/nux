@@ -132,25 +132,23 @@ func (s *Screen) drawSprite(op drawOp) {
 		m, theme = s.myImageFor(op)
 		auto     = s.Auto()
 		addr     = s.Addr()
-		sx, sy   = s.X(), s.Y() // sprite top-left
+		sx, sy   = int(s.X()), int(s.Y()) // sprite top-left
+		dx, dy   = 1, 1
 		// drawZero reports whether this blending mode should draw
 		// color zero; if false, pixels of color zero are not set.
 		drawZero = op.Blend() == 0 || op.Blend()%5 != 0
 		sprite   = s.main[addr:]
 	)
+	if !op.FlipX() {
+		dx = -1
+		sx += 7
+	}
+	if op.FlipY() {
+		dy = -1
+		sy += 7
+	}
 	for i := auto.Count(); i >= 0; i-- {
-		var (
-			x, y   = int(sx), int(sy)
-			dx, dy = 1, 1
-		)
-		if !op.FlipX() {
-			x += 7
-			dx = -1
-		}
-		if op.FlipY() {
-			y += 7
-			dy = -1
-		}
+		var x, y = sx, sy
 		for j := 0; j < 8; j++ {
 			pxA, pxB := sprite[j], sprite[j+8]
 			for i := 0; i < 8; i++ {
@@ -174,10 +172,10 @@ func (s *Screen) drawSprite(op drawOp) {
 			y += dy
 		}
 		if auto.X() {
-			sy += 8
+			sy += 8 * dy
 		}
 		if auto.Y() {
-			sx += 8
+			sx += 8 * -dx
 		}
 		if auto.Addr() {
 			if op.TwoBit() {
@@ -189,10 +187,10 @@ func (s *Screen) drawSprite(op drawOp) {
 		}
 	}
 	if auto.X() {
-		s.setX(s.X() + 8)
+		s.setX(s.X() + 8*int16(-dx))
 	}
 	if auto.Y() {
-		s.setY(s.Y() + 8)
+		s.setY(s.Y() + 8*int16(dy))
 	}
 	if auto.Addr() {
 		s.setAddr(addr)
