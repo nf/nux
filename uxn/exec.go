@@ -240,9 +240,10 @@ func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
 	case DIV:
 		b, a := s.Pop(), s.Pop()
 		if b == 0 {
-			panic(DivideByZero)
+			s.Push(0)
+		} else {
+			s.Push(a / b)
 		}
-		s.Push(a / b)
 	case AND:
 		s.Push(s.Pop() & s.Pop())
 	case ORA:
@@ -256,9 +257,7 @@ func execSimple[T byte | uint16](op Op, s pushPopper[T]) {
 
 // OpAddr returns the address associated with the operation at addr, either
 // from memory or the stack, and reports whether the operation has an
-// associated address (for example, JMP does while POP does not), and whether
-// there are enough bytes on the stack to provide an address (ie, it returns
-// false if executing the instruction would trigger a stack underflow).
+// associated address (for example, JMP does while POP does not).
 func (m *Machine) OpAddr(addr uint16) (uint16, bool) {
 	switch op := Op(m.Mem[addr]); op.Base() {
 	case JCI, JMI, JSI:
@@ -307,7 +306,9 @@ func (e HaltError) Error() string {
 type HaltCode byte
 
 const (
-	Halt         HaltCode = 0x00
+	Halt HaltCode = 0x00
+
+	// These are historical codes for conditions that are no longer halting.
 	Underflow    HaltCode = 0x01
 	Overflow     HaltCode = 0x02
 	DivideByZero HaltCode = 0x03

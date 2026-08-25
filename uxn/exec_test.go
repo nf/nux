@@ -111,6 +111,7 @@ func TestExec(t *testing.T) {
 		c(SUB).work(3, 2).want().work(1),
 		c(MUL).work(2, 3).want().work(6),
 		c(DIV).work(6, 3).want().work(2),
+		c(DIV).work(6, 0).want().work(0),
 		c(AND).work(0x99, 0xb8).want().work(0x98),
 		c(ORA).work(0x36, 0x63).want().work(0x77),
 		c(EOR).work(0x31, 0x13).want().work(0x22),
@@ -170,21 +171,6 @@ func TestExec(t *testing.T) {
 
 		c(SFT).work(9, 0x21).want().work(16),
 		c(SFT2).work(1, 9, 0x21).want().work(2, 16),
-
-		c(DIV).work(1, 2, 0).want().work(1).
-			error(HaltError{HaltCode: DivideByZero, Op: DIV, Addr: 0x100}),
-		c(POP).want().
-			error(HaltError{HaltCode: Underflow, Op: POP, Addr: 0x100}),
-		c(POP2).work(42).want().work().
-			error(HaltError{HaltCode: Underflow, Op: POP2, Addr: 0x100}),
-		c(POP2k).work(42).want().work(42).
-			error(HaltError{HaltCode: Underflow, Op: POP2k, Addr: 0x100}),
-		c(DUP).work(bytes.Repeat([]byte{7}, 255)...).want().
-			work(bytes.Repeat([]byte{7}, 255)...).
-			error(HaltError{HaltCode: Overflow, Op: DUP, Addr: 0x100}),
-		c(DUP2).work(bytes.Repeat([]byte{7}, 254)...).want().
-			work(bytes.Repeat([]byte{7}, 255)...).
-			error(HaltError{HaltCode: Overflow, Op: DUP2, Addr: 0x100}),
 	} {
 		t.Run(fmt.Sprintf("%s_%d", Op(c.m.Mem[0x100]), i), func(t *testing.T) {
 			if err := c.m.Exec(); err != c.err {
@@ -207,6 +193,45 @@ func TestExec(t *testing.T) {
 				t.Errorf("PC is %x, want %x", g, w)
 			}
 		})
+	}
+}
+
+func TestStackWrap(t *testing.T) {
+	var s Stack
+	w := s.wrap()
+
+	w.Pop()
+	if got, want := s.Ptr, byte(0xff); got != want {
+		t.Fatalf("pointer after pop = %.2x, want %.2x", got, want)
+	}
+	w.Push(0x12)
+	if got, want := s.Ptr, byte(0x00); got != want {
+		t.Fatalf("pointer after push = %.2x, want %.2x", got, want)
+	}
+	if got, want := s.Bytes[0xff], byte(0x12); got != want {
+		t.Fatalf("stack[ff] = %.2x, want %.2x", got, want)
+	}
+}
+
+func TestStackShortWrap(t *testing.T) {
+	s := Stack{Ptr: 0xff}
+
+	s.wrap().PushShort(0x1234)
+	if got, want := s.Ptr, byte(0x01); got != want {
+		t.Fatalf("pointer after push short = %.2x, want %.2x", got, want)
+	}
+	if got, want := s.Bytes[0xff], byte(0x12); got != want {
+		t.Errorf("stack[ff] = %.2x, want %.2x", got, want)
+	}
+	if got, want := s.Bytes[0x00], byte(0x34); got != want {
+		t.Errorf("stack[00] = %.2x, want %.2x", got, want)
+	}
+
+	if got, want := s.wrap().PopShort(), uint16(0x1234); got != want {
+		t.Errorf("pop short = %.4x, want %.4x", got, want)
+	}
+	if got, want := s.Ptr, byte(0xff); got != want {
+		t.Fatalf("pointer after pop short = %.2x, want %.2x", got, want)
 	}
 }
 

@@ -7,15 +7,12 @@ import (
 
 // Stack implements a Uxn CPU stack.
 type Stack struct {
-	Bytes [255]byte
+	Bytes [256]byte
 	Ptr   byte
 }
 
 func (s *Stack) Peek() (byte, bool) {
-	if s.Ptr == 0 {
-		return 0, false
-	}
-	return s.Bytes[s.Ptr-1], true
+	return s.Bytes[byte(s.Ptr-1)], true
 }
 
 func (s *Stack) PeekOffset() (uint16, bool) {
@@ -24,10 +21,7 @@ func (s *Stack) PeekOffset() (uint16, bool) {
 }
 
 func (s *Stack) PeekShort() (uint16, bool) {
-	if s.Ptr < 2 {
-		return 0, false
-	}
-	return short(s.Bytes[s.Ptr-2], s.Bytes[s.Ptr-1]), true
+	return short(s.Bytes[byte(s.Ptr-2)], s.Bytes[byte(s.Ptr-1)]), true
 }
 
 func (s *Stack) wrap() *stackWrapper { return s.keep(false) }
@@ -47,9 +41,6 @@ func (s *stackWrapper) Pop() byte {
 	if s.pushed {
 		panic("internal error: Pop after Push in StackWrapper")
 	}
-	if s.Ptr-s.popped == 0 {
-		panic(Underflow)
-	}
 	if s.keep {
 		s.popped++
 	} else {
@@ -59,9 +50,6 @@ func (s *stackWrapper) Pop() byte {
 }
 
 func (s *stackWrapper) Push(v byte) {
-	if s.Ptr == 255 {
-		panic(Overflow)
-	}
 	s.Bytes[s.Ptr] = v
 	s.Ptr++
 	s.pushed = true
