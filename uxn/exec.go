@@ -97,7 +97,11 @@ func (m *Machine) Exec() (err error) {
 			m.PC += st.PopOffset()
 		}
 		if op.Base() == JSR {
-			m.Ret.wrap().PushShort(pc)
+			if op.Return() {
+				m.Work.wrap().PushShort(pc)
+			} else {
+				m.Ret.wrap().PushShort(pc)
+			}
 		}
 	case JCN:
 		var addr uint16

@@ -142,6 +142,7 @@ func TestExec(t *testing.T) {
 		c(JSRk).work(4).want().work(4).ret(1, 1).pc(0x105),
 		c(JSR2).work(2, 7).want().ret(1, 1).pc(0x207),
 		c(JSR2k).work(2, 7).want().work(2, 7).ret(1, 1).pc(0x207),
+		c(JSRr).ret(4).want().work(1, 1).pc(0x105),
 
 		c(STH).work(7).want().ret(7),
 		c(STHr).ret(7).want().work(7),
