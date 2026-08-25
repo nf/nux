@@ -176,6 +176,7 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 
 type Varvara struct {
 	m     *uxn.Machine
+	dev   [0x100]byte
 	sys   System
 	con   Console
 	scr   Screen
@@ -340,9 +341,9 @@ func (v *Varvara) Exec(g *GUI) error {
 	}
 }
 
-func (v *Varvara) In(p byte) byte {
-	dev := p & 0xf0
-	p &= 0xf
+func (v *Varvara) In(port byte) byte {
+	dev := port & 0xf0
+	p := port & 0xf
 	switch dev {
 	case 0x00:
 		return v.sys.In(p)
@@ -361,7 +362,7 @@ func (v *Varvara) In(p byte) byte {
 	case 0xc0:
 		return v.time.In(p)
 	default:
-		return 0 // Unimplemented device.
+		return v.dev[port]
 	}
 }
 
@@ -369,9 +370,9 @@ func (v *Varvara) InShort(p byte) uint16 {
 	return short(v.In(p), v.In(p+1))
 }
 
-func (v *Varvara) Out(p, b byte) {
-	dev := p & 0xf0
-	p &= 0xf
+func (v *Varvara) Out(port, b byte) {
+	dev := port & 0xf0
+	p := port & 0xf
 	switch dev {
 	case 0x00:
 		v.sys.Out(p, b)
@@ -389,6 +390,8 @@ func (v *Varvara) Out(p, b byte) {
 		v.fileB.Out(p, b)
 	case 0xc0:
 		v.time.Out(p, b)
+	default:
+		v.dev[port] = b
 	}
 }
 
