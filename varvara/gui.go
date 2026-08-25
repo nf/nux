@@ -79,6 +79,10 @@ func (g *GUI) Run(exit <-chan bool) (err error) {
 		}
 		defer w.Release()
 		defer g.release()
+		// NewWindow returns before the OpenGL context is ready on macOS.
+		// Publish once so a ROM that exits immediately cannot release the
+		// window while the driver is still preparing it.
+		w.Publish()
 
 		go func() {
 			t := time.NewTicker(time.Second / 60)
