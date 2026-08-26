@@ -17,6 +17,5 @@ machine, by [nf](https://nf.wh3rd.net/).
 
 ## Known issues
 
-- The File device is not well-tested, and likely has bugs.
 - The button events of the Mouse device somehow misfire.
 - The GUI doesn't always shut down when exiting the debugger.
