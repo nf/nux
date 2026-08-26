@@ -7,9 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
-	"path"
 	"path/filepath"
-	"strings"
 )
 
 type File struct {
@@ -67,14 +65,7 @@ func (f *File) Out(p, b byte) {
 		if !ok {
 			panic("unterminated file name")
 		}
-		n := string(name)
-		if n != "" {
-			n = path.Clean(n)
-			if path.IsAbs(n) || strings.HasPrefix(n, "../") {
-				panic(fmt.Errorf("bad file name %q", n))
-			}
-		}
-		f.name = n
+		f.name = string(name)
 
 	case 0xd: // read
 		f.setSuccess(0)
