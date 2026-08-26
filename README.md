@@ -19,5 +19,4 @@ machine, by [nf](https://nf.wh3rd.net/).
 
 - The File device is not well-tested, and likely has bugs.
 - The button events of the Mouse device somehow misfire.
-- Included source files are not watched by the `-dev` feature.
 - The GUI doesn't always shut down when exiting the debugger.

@@ -18,16 +18,46 @@ import (
 var drifblimROM []byte
 
 func devMode(enableGUI, enableDebug bool, talFile string) error {
-	talFile = filepath.Clean(talFile)
+	talFile, err := filepath.Abs(talFile)
+	if err != nil {
+		return err
+	}
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
 	}
 	defer watcher.Close()
-	if err := watcher.Watch(filepath.Dir(talFile)); err != nil {
+	watchedFiles := make(map[string]bool)
+	watchedDirs := make(map[string]bool)
+	watchFiles := func(files []string, replace bool) {
+		if replace {
+			watchedFiles = make(map[string]bool)
+		}
+		for _, name := range files {
+			name, err := filepath.Abs(filepath.FromSlash(name))
+			if err != nil {
+				log.Printf("dev: watch %s: %v", name, err)
+				continue
+			}
+			watchedFiles[name] = true
+			dir := filepath.Dir(name)
+			if watchedDirs[dir] {
+				continue
+			}
+			if err := watcher.Watch(dir); err != nil {
+				log.Printf("dev: watch %s: %v", dir, err)
+				continue
+			}
+			watchedDirs[dir] = true
+		}
+	}
+	watchedFiles[talFile] = true
+	talDir := filepath.Dir(talFile)
+	if err := watcher.Watch(talDir); err != nil {
 		return err
 	}
+	watchedDirs[talDir] = true
 	tmp, err := os.MkdirTemp("", "nux-dev-*")
 	if err != nil {
 		return err
@@ -71,7 +101,8 @@ func devMode(enableGUI, enableDebug bool, talFile string) error {
 				if debug != nil {
 					out = debug.Log
 				}
-				rom, err := devBuild(out, talFile, romFile)
+				rom, files, err := devBuildFiles(out, talFile, romFile)
+				watchFiles(files, err == nil)
 				if err != nil {
 					log.Printf("dev: %v", err)
 					break
@@ -93,7 +124,8 @@ func devMode(enableGUI, enableDebug bool, talFile string) error {
 					runner.Swap(rom)
 				}
 			case ev := <-watcher.Event:
-				if ev.Name == talFile && !ev.IsAttrib() {
+				name, err := filepath.Abs(ev.Name)
+				if err == nil && watchedFiles[name] && !ev.IsAttrib() {
 					run = time.After(100 * time.Millisecond)
 				}
 			case err := <-watcher.Error:
@@ -106,9 +138,14 @@ func devMode(enableGUI, enableDebug bool, talFile string) error {
 }
 
 func devBuild(out io.Writer, talFile, romFile string) ([]byte, error) {
+	rom, _, err := devBuildFiles(out, talFile, romFile)
+	return rom, err
+}
+
+func devBuildFiles(out io.Writer, talFile, romFile string) ([]byte, []string, error) {
 	tmp, err := os.MkdirTemp(".", ".nux-build-*")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer os.RemoveAll(tmp)
 
@@ -116,23 +153,25 @@ func devBuild(out io.Writer, talFile, romFile string) ([]byte, error) {
 	r := varvara.NewRunner(false, false, nil)
 	r.SetOutput(out)
 	r.SetArgs(filepath.ToSlash(talFile), filepath.ToSlash(buildROM))
+	var files []string
+	r.SetFileReadFunc(func(name string) { files = append(files, name) })
 	if code := r.Run(drifblimROM); code != 0 {
-		return nil, fmt.Errorf("drifblim: exit code: %d", code)
+		return nil, files, fmt.Errorf("drifblim: exit code: %d", code)
 	}
 
 	rom, err := os.ReadFile(buildROM)
 	if err != nil {
-		return nil, err
+		return nil, files, err
 	}
 	if err := os.WriteFile(romFile, rom, 0644); err != nil {
-		return nil, err
+		return nil, files, err
 	}
 	sym, err := os.ReadFile(buildROM + ".sym")
 	if err != nil {
-		return nil, err
+		return nil, files, err
 	}
 	if err := os.WriteFile(romFile+".sym", sym, 0644); err != nil {
-		return nil, err
+		return nil, files, err
 	}
-	return rom, nil
+	return rom, files, nil
 }

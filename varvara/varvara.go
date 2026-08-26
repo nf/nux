@@ -12,9 +12,10 @@ import (
 )
 
 type Runner struct {
-	gui   bool
-	dev   bool
-	state StateFunc
+	gui      bool
+	dev      bool
+	state    StateFunc
+	fileRead func(string)
 
 	swap     chan []byte
 	swapDone chan bool
@@ -66,6 +67,9 @@ func (r *Runner) SetOutput(w io.Writer) {
 
 func (r *Runner) SetArgs(args ...string) { r.args = args }
 
+// SetFileReadFunc sets a function to call when the File device starts a read.
+func (r *Runner) SetFileReadFunc(fn func(string)) { r.fileRead = fn }
+
 func (r *Runner) Debug(cmd string, addr uint16) { r.debug <- debugOp{cmd, addr} }
 
 func (r *Runner) Swap(rom []byte) {
@@ -82,6 +86,8 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 		prev := v
 		v = New(rom, r.state, r.stdout, r.stderr)
 		v.con.args = r.args
+		v.fileA.read = r.fileRead
+		v.fileB.read = r.fileRead
 		if len(r.args) > 0 {
 			v.con.mem[0x7] = consoleTypeStdin
 		}

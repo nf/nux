@@ -16,6 +16,7 @@ type File struct {
 
 	append bool
 	name   string
+	read   func(string)
 
 	reader io.ReadCloser
 	writer io.WriteCloser
@@ -75,6 +76,9 @@ func (f *File) Out(p, b byte) {
 		if f.reader == nil {
 			if f.name == "" {
 				return
+			}
+			if f.read != nil {
+				f.read(f.name)
 			}
 			r, err := fileReader(filepath.FromSlash(f.name))
 			if err != nil {
