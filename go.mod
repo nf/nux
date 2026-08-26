@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/gdamore/tcell/v2 v2.13.10
+	github.com/google/go-cmp v0.7.0
 	github.com/howeyc/fsnotify v0.9.0
 	github.com/rivo/tview v0.42.0
 	golang.org/x/exp/shiny v0.0.0-20260824195058-e88cd73687aa

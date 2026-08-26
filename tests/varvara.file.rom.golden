@@ -1,0 +1,12 @@
+File/write: pass
+File/append: pass
+File/read: pass
+File/read(overflow): pass
+File/stat: pass
+File/stat(oversize): pass
+File/stat(overflow): pass
+File/write(overflow): pass
+File/delete: pass
+File/success: pass
+File/dir(spacer): pass
+File/dir(partial): pass
