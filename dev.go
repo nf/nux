@@ -1,11 +1,11 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -13,6 +13,9 @@ import (
 
 	"github.com/nf/nux/varvara"
 )
+
+//go:embed drifblim.rom
+var drifblimROM []byte
 
 func devMode(enableGUI, enableDebug bool, talFile string) error {
 	talFile = filepath.Clean(talFile)
@@ -103,11 +106,33 @@ func devMode(enableGUI, enableDebug bool, talFile string) error {
 }
 
 func devBuild(out io.Writer, talFile, romFile string) ([]byte, error) {
-	cmd := exec.Command("uxnasm", talFile, romFile)
-	cmd.Stdout = out
-	cmd.Stderr = out
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("uxnasm: %v", err)
+	tmp, err := os.MkdirTemp(".", ".nux-build-*")
+	if err != nil {
+		return nil, err
 	}
-	return os.ReadFile(romFile)
+	defer os.RemoveAll(tmp)
+
+	buildROM := filepath.Join(tmp, filepath.Base(romFile))
+	r := varvara.NewRunner(false, false, nil)
+	r.SetOutput(out)
+	r.SetArgs(filepath.ToSlash(talFile), filepath.ToSlash(buildROM))
+	if code := r.Run(drifblimROM); code != 0 {
+		return nil, fmt.Errorf("drifblim: exit code: %d", code)
+	}
+
+	rom, err := os.ReadFile(buildROM)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(romFile, rom, 0644); err != nil {
+		return nil, err
+	}
+	sym, err := os.ReadFile(buildROM + ".sym")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(romFile+".sym", sym, 0644); err != nil {
+		return nil, err
+	}
+	return rom, nil
 }
