@@ -315,6 +315,9 @@ func (v *Varvara) Exec(g *GUI) error {
 				return err
 			}
 		}
+		if v.sys.Exited() {
+			return nil
+		}
 		if clear {
 			v.state(v.m, ClearState)
 		} else {

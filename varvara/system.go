@@ -15,6 +15,7 @@ func (s *System) Halt() uint16  { return s.mem.short(0x0) }
 func (s *System) Red() uint16   { return s.mem.short(0x8) }
 func (s *System) Green() uint16 { return s.mem.short(0xa) }
 func (s *System) Blue() uint16  { return s.mem.short(0xc) }
+func (s *System) Exited() bool  { return s.mem[0xf] != 0 }
 func (s *System) ExitCode() int { return int(s.mem[0xf] & 0x7f) }
 
 func (s *System) In(p byte) byte {
@@ -44,9 +45,5 @@ func (s *System) Out(p, b byte) {
 		}
 	case 0xe:
 		panic(uxn.Debug)
-	case 0xf:
-		if b != 0 {
-			panic(uxn.Halt) // Stop execution.
-		}
 	}
 }
