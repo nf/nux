@@ -21,6 +21,7 @@ type Runner struct {
 	debug    chan debugOp
 
 	stdout, stderr io.Writer
+	args           []string
 }
 
 type StateFunc func(*uxn.Machine, StateKind)
@@ -63,6 +64,8 @@ func (r *Runner) SetOutput(w io.Writer) {
 	r.stderr = w
 }
 
+func (r *Runner) SetArgs(args ...string) { r.args = args }
+
 func (r *Runner) Debug(cmd string, addr uint16) { r.debug <- debugOp{cmd, addr} }
 
 func (r *Runner) Swap(rom []byte) {
@@ -78,6 +81,10 @@ func (r *Runner) Run(rom []byte) (exitCode int) {
 	newV := func() {
 		prev := v
 		v = New(rom, r.state, r.stdout, r.stderr)
+		v.con.args = r.args
+		if len(r.args) > 0 {
+			v.con.mem[0x7] = consoleTypeStdin
+		}
 		if prev != nil {
 			v.debugAddr = prev.debugAddr
 			v.breakAddrs.Store(prev.breakAddrs.Load())
@@ -267,6 +274,8 @@ func (v *Varvara) RemoveBreak(addr uint16) {
 
 func (v *Varvara) Exec(g *GUI) error {
 	defer v.state(v.m, HaltState)
+	defer v.fileA.close()
+	defer v.fileB.close()
 	for {
 		clear := false
 		for {
@@ -327,7 +336,8 @@ func (v *Varvara) Exec(g *GUI) error {
 		var vector uint16
 		for vector == 0 {
 			select {
-			case <-v.con.Ready:
+			case input := <-v.con.Ready:
+				v.con.setInput(input)
 				vector = v.con.Vector()
 			case <-v.cntrl.Ready:
 				vector = v.cntrl.Vector()
