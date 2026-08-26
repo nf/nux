@@ -26,21 +26,28 @@ func (s *System) Out(p, b byte) {
 	s.mem[p] = b
 	switch p {
 	case 0x3:
-		switch addr := s.mem.short(0x2); s.main[addr] {
-		case 0x01: // copy
-			var (
-				v = func() uint16 {
-					addr += 2
-					return short(s.main[addr-1], s.main[addr])
-				}
-				size    = int(v())
-				src     = int(v()%0x10) * 0x10000
-				srcAddr = v()
-				dst     = int(v()%0x10) * 0x10000
-				dstAddr = v()
-			)
-			for i := 0; i < size; i++ {
-				s.main[dst+int(dstAddr+uint16(i))] = s.main[src+int(srcAddr+uint16(i))]
+		addr := s.mem.short(0x2)
+		v := func(offset uint16) uint16 {
+			return short(s.main[addr+offset], s.main[addr+offset+1])
+		}
+		length := int(v(1))
+		bank := int(v(3)) * 0x10000
+		srcAddr := int(v(5))
+		length = min(length, 0x10000-srcAddr)
+		if bank >= len(s.main) {
+			return
+		}
+		switch s.main[addr] {
+		case 0x00: // fill
+			for i := range length {
+				s.main[bank+srcAddr+i] = s.main[addr+7]
+			}
+		case 0x01, 0x02: // copy
+			dstBank := int(v(7)) * 0x10000
+			dstAddr := int(v(9))
+			length = min(length, 0x10000-dstAddr)
+			if dstBank < len(s.main) {
+				copy(s.main[dstBank+dstAddr:dstBank+dstAddr+length], s.main[bank+srcAddr:bank+srcAddr+length])
 			}
 		}
 	case 0xe:
